@@ -12,9 +12,15 @@ per match (map from mapinfo.py, faction from Rich Presence) so match
 history can eventually be broken down by where/who you played.
 
 Role XP (Wardog/Infantry/Medic/Driver/Pilot/Support/Recon, from rolexp.py)
-is snapshotted at match start and again at match end; any nonzero gains
-get appended as one row to role_xp_log.csv, a single running log across
-all matches (not per-session, since most matches only move one role).
+is watched every poll, independent of match start/end, and any gain gets
+appended immediately as its own row to role_xp_log.csv (session_file blank
+if it lands between matches). This used to snapshot once at match-start
+and once at match-end instead, which missed gains on long matches: Wardogs
+doesn't always finish rewriting the save file by the exact instant a match
+starts or ends, so a snapshot taken right then could read the pre-levelup
+value as if it were final. Polling continuously means whenever the game
+actually writes the update — seconds or minutes later — the very next poll
+catches it, instead of a single fragile snapshot that can miss it entirely.
 
 Each row is also tagged with `life` — starts at 1, increments every time
 a new "Player Spawned" breadcrumb (mapinfo.spawn_events()) shows up after
@@ -43,30 +49,22 @@ import rolexp
 XP_LOG_PATH = "role_xp_log.csv"
 LIFE_SPAWN_GRACE = timedelta(seconds=3)  # ignores the insertion spawn itself
 
-# Role XP snapshot at the start of whichever match is currently live, so a
-# UI running auto_track() in a background thread (same process — app.py)
-# can show live gains-so-far without waiting for the match to end and get
-# written to XP_LOG_PATH. None while no match is in progress.
-live_role_xp_before = None
 
-
-def _log_role_xp(session_file, xp_before):
-    """Appends one row of role-XP gains for a just-ended match, if any."""
-    if not xp_before:
-        return
-    xp_after = rolexp.read_role_xp()
-    if not xp_after:
-        return
-    gains = [xp_after.get(r, xp_before.get(r, 0)) - xp_before.get(r, 0) for r in rolexp.ROLES]
-    if not any(gains):
-        return
+def _append_xp_log(session_file, gains):
+    """Appends one row of role-XP gains, tagged to whichever match was
+    active when the change was actually detected (blank if it landed
+    between matches — e.g. the save file finishing its write after you'd
+    already returned to the menu)."""
     is_new = not os.path.exists(XP_LOG_PATH)
     with open(XP_LOG_PATH, "a", newline="") as f:
         writer = csv.writer(f)
         if is_new:
             writer.writerow(["timestamp", "session_file"] + rolexp.ROLES)
-        writer.writerow([datetime.now().isoformat(timespec="seconds"), session_file] + gains)
-        print(f"Role XP gained: {dict(zip(rolexp.ROLES, gains))}")
+        writer.writerow(
+            [datetime.now().isoformat(timespec="seconds"), session_file or ""]
+            + [gains.get(r, 0) for r in rolexp.ROLES]
+        )
+        print(f"Role XP gained: {gains}")
 
 
 def auto_track(interval=2.0, stop_event=None, on_session_start=None, on_update=None,
@@ -94,7 +92,6 @@ def auto_track(interval=2.0, stop_event=None, on_session_start=None, on_update=N
         raise SystemExit("Could not initialize Steam Rich Presence. Is Steam running?")
     print(f"Watching Rich Presence for Wardogs (AppID {rp.app_id}). Polling every {interval}s.")
 
-    global live_role_xp_before
     in_match = False
     filename = None
     f = None
@@ -105,15 +102,25 @@ def auto_track(interval=2.0, stop_event=None, on_session_start=None, on_update=N
     miss_streak = 0
     session_map = None
     session_faction = None
-    role_xp_before = None
     match_start_dt = None
     life_number = 1
     known_spawn_dts = set()
+    known_xp = rolexp.read_role_xp()  # baseline — a bad/empty read here just means we start watching from whatever the next good read is
 
     try:
         while stop_event is None or not stop_event.is_set():
             data = rp.read()
             state = data.get("game_state")
+
+            # Independent of match state — see the module docstring for why
+            # this isn't a start/end snapshot.
+            current_xp = rolexp.read_role_xp()
+            if current_xp:
+                gains = {r: current_xp.get(r, 0) - known_xp.get(r, 0) for r in rolexp.ROLES}
+                gains = {r: v for r, v in gains.items() if v > 0}
+                if gains:
+                    _append_xp_log(filename if in_match else None, gains)
+                known_xp = current_xp
 
             if not in_match:
                 playing_streak = playing_streak + 1 if state == "playing" else 0
@@ -128,8 +135,6 @@ def auto_track(interval=2.0, stop_event=None, on_session_start=None, on_update=N
                     miss_streak = 0
                     session_map = None
                     session_faction = None
-                    role_xp_before = rolexp.read_role_xp()
-                    live_role_xp_before = role_xp_before
                     match_start_dt = datetime.now(timezone.utc)
                     life_number = 1
                     known_spawn_dts = set()
@@ -165,12 +170,9 @@ def auto_track(interval=2.0, stop_event=None, on_session_start=None, on_update=N
                         f.close()
                         ended_file = filename
                         print(f"Match ended (game_state={state!r}). Session saved to {ended_file}")
-                        _log_role_xp(ended_file, role_xp_before)
                         f, writer, filename = None, None, None
                         in_match = False
                         playing_streak = 0
-                        role_xp_before = None
-                        live_role_xp_before = None
                         if on_session_end:
                             on_session_end(ended_file)
 
@@ -184,8 +186,6 @@ def auto_track(interval=2.0, stop_event=None, on_session_start=None, on_update=N
         if f:
             f.close()
             print(f"\nStopped mid-match. Session saved to {filename}")
-            _log_role_xp(filename, role_xp_before)
-        live_role_xp_before = None
         rp.shutdown()
 
 

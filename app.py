@@ -128,7 +128,12 @@ def friendly_session_time(csv_path):
 
 def load_xp_log():
     """{'session_20260916_224408.csv': {'Wardog': 2, ...}} from role_xp_log.csv
-    — only roles with a nonzero gain, only sessions that gained anything."""
+    — only roles with a nonzero gain, only sessions that gained anything.
+    A session can have several rows now (gains get logged the moment
+    they're detected, not just once at match-end — see tracker.py), so
+    this sums them rather than keeping only the last one. Rows with a
+    blank session_file (the gain landed between matches) aren't
+    attributable to any card and are skipped here."""
     result = {}
     if not os.path.exists(tracker.XP_LOG_PATH):
         return result
@@ -137,16 +142,13 @@ def load_xp_log():
             session_file = row.get("session_file")
             if not session_file:
                 continue
-            gains = {}
             for role in rolexp.ROLES:
                 try:
                     v = int(row.get(role, 0) or 0)
                 except ValueError:
                     v = 0
                 if v:
-                    gains[role] = v
-            if gains:
-                result[session_file] = gains
+                    result.setdefault(session_file, {})[role] = result.get(session_file, {}).get(role, 0) + v
     return result
 
 
@@ -502,13 +504,11 @@ class App:
 
     def _render_xp_view(self):
         totals = rolexp.read_role_xp()
-
-        if self.selected_session and self.selected_session == self.live_session and tracker.live_role_xp_before:
-            baseline = tracker.live_role_xp_before
-            gains = {r: totals.get(r, 0) - baseline.get(r, 0) for r in rolexp.ROLES}
-            gains = {r: v for r, v in gains.items() if v}
-        else:
-            gains = load_xp_log().get(self.selected_session) if self.selected_session else None
+        # Gains are logged the instant they're detected now, live match or
+        # not (see tracker.py) — load_xp_log() already sums a session's
+        # rows, so this works the same whether the match is still going or
+        # long over.
+        gains = load_xp_log().get(self.selected_session) if self.selected_session else None
 
         # Rebuilding this view (destroy + recreate every label/icon) is
         # visibly flickery, and _poll() calls this every 2s — so skip it
