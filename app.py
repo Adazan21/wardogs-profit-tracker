@@ -128,7 +128,12 @@ def friendly_session_time(csv_path):
 
 def load_xp_log():
     """{'session_20260916_224408.csv': {'Wardog': 2, ...}} from role_xp_log.csv
-    — only roles with a nonzero gain, only sessions that gained anything."""
+    — only roles with a nonzero gain, only sessions that gained anything.
+    A session can have several rows now (gains get logged the moment
+    they're detected, not just once at match-end — see tracker.py), so
+    this sums them rather than keeping only the last one. Rows with a
+    blank session_file (the gain landed between matches) aren't
+    attributable to any card and are skipped here."""
     result = {}
     if not os.path.exists(tracker.XP_LOG_PATH):
         return result
@@ -137,16 +142,13 @@ def load_xp_log():
             session_file = row.get("session_file")
             if not session_file:
                 continue
-            gains = {}
             for role in rolexp.ROLES:
                 try:
                     v = int(row.get(role, 0) or 0)
                 except ValueError:
                     v = 0
                 if v:
-                    gains[role] = v
-            if gains:
-                result[session_file] = gains
+                    result.setdefault(session_file, {})[role] = result.get(session_file, {}).get(role, 0) + v
     return result
 
 
@@ -374,6 +376,9 @@ class App:
         self._xp_view_signature = None
         self._pulse_after_id = None
         self._poll_after_id = None
+        self._slider_full_df = None
+        self._slider_csv_path = None
+        self._user_scrubbing = False
 
         self._build_ui()
         self.refresh_sessions(select_latest=True)
@@ -441,7 +446,19 @@ class App:
         self.fig, self.axes = plt.subplots(2, 1, figsize=(8, 6), sharex=True, facecolor=CARD)
         self.canvas = FigureCanvasTkAgg(self.fig, master=chart_card)
         self.canvas.get_tk_widget().configure(bg=CARD, highlightthickness=0)
-        self.canvas.get_tk_widget().pack(fill="both", expand=True, padx=16, pady=16)
+
+        self.time_slider = tk.Scale(
+            chart_card, from_=0, to=100, orient="horizontal",
+            bg=CARD, fg=TEXT, troughcolor=CARD_ALT, highlightthickness=0,
+            bd=0, sliderrelief="flat", showvalue=0, activebackground=ACCENT,
+            command=self._on_scrub,
+        )
+        self.time_slider.configure(state="disabled")
+        self.time_slider.bind("<Button-1>", self._on_scrub_press)
+        self.time_slider.bind("<ButtonRelease-1>", self._on_scrub_release)
+        self.time_slider.pack(side="bottom", fill="x", padx=16, pady=(0, 14))
+
+        self.canvas.get_tk_widget().pack(fill="both", expand=True, padx=16, pady=(16, 4))
 
         self.xp_view = tk.Frame(chart_card, bg=CARD)
 
@@ -460,6 +477,9 @@ class App:
         self.fig.text(0.5, 0.5, message, ha="center", va="center", color=MUTED, fontsize=12)
         self.canvas.draw_idle()
         self._reset_tiles()
+        self._slider_full_df = None
+        self.time_slider.configure(state="disabled", to=100)
+        self.time_slider.set(0)  # safe no-op in _on_scrub: _slider_full_df is None above
 
     def _reset_tiles(self):
         self.tile_current.render("—", MUTED)
@@ -474,21 +494,21 @@ class App:
         self.tab_xp.set_active(mode == "xp")
         if mode == "xp":
             self.canvas.get_tk_widget().pack_forget()
+            self.time_slider.pack_forget()
             self._render_xp_view()
             self.xp_view.pack(fill="both", expand=True, padx=16, pady=16)
         else:
             self.xp_view.pack_forget()
-            self.canvas.get_tk_widget().pack(fill="both", expand=True, padx=16, pady=16)
+            self.time_slider.pack(side="bottom", fill="x", padx=16, pady=(0, 14))
+            self.canvas.get_tk_widget().pack(fill="both", expand=True, padx=16, pady=(16, 4))
 
     def _render_xp_view(self):
         totals = rolexp.read_role_xp()
-
-        if self.selected_session and self.selected_session == self.live_session and tracker.live_role_xp_before:
-            baseline = tracker.live_role_xp_before
-            gains = {r: totals.get(r, 0) - baseline.get(r, 0) for r in rolexp.ROLES}
-            gains = {r: v for r, v in gains.items() if v}
-        else:
-            gains = load_xp_log().get(self.selected_session) if self.selected_session else None
+        # Gains are logged the instant they're detected now, live match or
+        # not (see tracker.py) — load_xp_log() already sums a session's
+        # rows, so this works the same whether the match is still going or
+        # long over.
+        gains = load_xp_log().get(self.selected_session) if self.selected_session else None
 
         # Rebuilding this view (destroy + recreate every label/icon) is
         # visibly flickery, and _poll() calls this every 2s — so skip it
@@ -547,6 +567,7 @@ class App:
         if self.selected_session and self.selected_session in self.cards:
             self.cards[self.selected_session].set_selected(False)
         self.selected_session = session_path
+        self._user_scrubbing = False
         if session_path in self.cards:
             self.cards[session_path].set_selected(True)
         self.render_graph(session_path, animate=True)
@@ -560,6 +581,16 @@ class App:
             self._show_placeholder(f"No readings logged yet for {display_name(csv_path)}")
             return
 
+        self._slider_full_df = df
+        self._slider_csv_path = csv_path
+        self.time_slider.configure(state="normal", to=max(len(df) - 1, 0))
+
+        if self._user_scrubbing and not animate:
+            # A live match grew while the user is mid-drag reviewing an
+            # earlier point — data's refreshed for when they let go, but
+            # don't yank the view out from under them.
+            return
+
         # A reveal already in flight gets superseded — this render wins.
         self._reveal_token = object()
 
@@ -567,16 +598,55 @@ class App:
             self._play_reveal(df, csv_path, self._reveal_token)
         else:
             self._animating = False
+            self._set_slider(len(df) - 1)
             self._draw_frame(df, csv_path)
 
-    def _draw_frame(self, df, csv_path):
-        """Render one frame of the chart (either the final still image, or one
-        step of the reveal animation) and update the stat tiles to match."""
+    def _set_slider(self, idx):
+        self.time_slider.set(idx)
+
+    def _on_scrub_press(self, _event):
+        self._user_scrubbing = True
+
+    def _on_scrub_release(self, _event):
+        self._user_scrubbing = False
+
+    def _on_scrub(self, value):
+        """Slider `command` callback — fires both on real user drag and on
+        our own programmatic `.set()` calls (_play_reveal syncing the thumb
+        as it plays). Gated on `_user_scrubbing`, which only a genuine
+        mouse-press on the widget sets — NOT a "did we just call .set()"
+        flag, because Tkinter can invoke `command` on a deferred/idle pass
+        rather than synchronously inside `.set()`, which made a
+        synchronous-toggle flag here race: by the time the deferred call
+        landed, the flag had already been reset, so a reveal's own sync
+        calls were misread as the user taking over and the animation
+        silently aborted a few frames in."""
+        if not self._user_scrubbing:
+            return
+        if self._slider_full_df is None or self._slider_full_df.empty:
+            return
+        idx = max(0, min(int(float(value)), len(self._slider_full_df) - 1))
+        self._reveal_token = object()  # user grabbed it — abandon any auto-reveal
+        self._animating = False
+        self._draw_frame(
+            self._slider_full_df.iloc[:idx + 1], self._slider_csv_path,
+            quick=True, full_df=self._slider_full_df,
+        )
+
+    def _draw_frame(self, df, csv_path, quick=False, full_df=None):
+        """Render one frame of the chart (either the final still image, one
+        step of the reveal animation, or a slider scrub) and update the stat
+        tiles to match. `quick`/`full_df` — see plot_graph.draw()."""
         self._graph_df = df
+        # Cheap regardless of quick mode, and both matter for recovering
+        # from the placeholder state (axis off + leftover fig.text) — a
+        # reveal's very first frame is often quick=True, so gating these
+        # behind `not quick` left stale placeholder text/hidden axes
+        # showing underneath the newly-drawn chart.
         self._clear_fig_text()
         for ax in self.axes:
             ax.axis("on")
-        plot_graph.draw(self.fig, self.axes, df, display_name(csv_path))
+        plot_graph.draw(self.fig, self.axes, df, display_name(csv_path), quick=quick, full_df=full_df)
         self.canvas.draw_idle()
 
         current = df["cash"].iloc[-1]
@@ -595,10 +665,13 @@ class App:
 
     def _play_reveal(self, df, csv_path, token):
         """Replay the match from the start: the line sweeps from the first
-        reading to the last over ~1s, instead of just appearing fully drawn."""
+        reading to the last over ~1s, instead of just appearing fully drawn.
+        Keeps the slider thumb in sync so it reads as "the slider playing
+        itself" rather than a separate animation the user then has to
+        reconcile with a static control."""
         self._animating = True
         n = len(df)
-        frame_count = min(28, n)
+        frame_count = min(45, n)
         cutoffs = sorted(set(int(round(v)) for v in np.linspace(2, n, frame_count)))
         if cutoffs[-1] != n:
             cutoffs.append(n)
@@ -607,8 +680,11 @@ class App:
         def step(i):
             if token is not self._reveal_token:
                 return  # a newer selection/update came in — abandon this replay
-            self._draw_frame(df.iloc[:cutoffs[i]], csv_path)
-            if i + 1 < len(cutoffs):
+            cutoff = cutoffs[i]
+            is_last = i + 1 >= len(cutoffs)
+            self._draw_frame(df.iloc[:cutoff], csv_path, quick=not is_last, full_df=df)
+            self._set_slider(cutoff - 1)
+            if not is_last:
                 self.root.after(frame_delay, lambda: step(i + 1))
             else:
                 self._animating = False

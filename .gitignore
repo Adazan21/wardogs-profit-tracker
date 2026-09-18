@@ -5,3 +5,6 @@ dist/*.exe
 steam_appid.txt
 session_*.csv
 role_xp_log.csv
+.claude/
+*.png
+!icons/*.png
