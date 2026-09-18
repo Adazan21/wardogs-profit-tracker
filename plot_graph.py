@@ -87,22 +87,61 @@ def _style_axis(ax):
         ax.spines[spine].set_color(GRID)
 
 
-def draw(fig, axes, df, csv_path):
+def draw(fig, axes, df, csv_path, quick=False, full_df=None):
+    """Draws the chart for `df` (which may be a prefix of the full match, for
+    the reveal animation / scrub slider).
+
+    `quick=True` skips the expensive parts that don't need to happen every
+    animation frame — axis chrome (grid/spines/labels/title/formatters),
+    layout, and hover rebinding — and only touches the data-dependent
+    artists (line, fill, peak marker, life markers), which are tracked on
+    `fig._data_artists` and swapped out in place instead of a full
+    `ax.clear()`. This is what makes scrubbing/replaying feel smooth instead
+    of janky: no per-frame layout recompute, and no axis rescaling (see
+    `full_df` below).
+
+    `full_df`, when given, is the complete match — used to compute fixed
+    axis limits so a mid-reveal/scrub frame showing only a prefix of the
+    data doesn't make the whole plot rescale and "jump" every frame. Falls
+    back to `df` itself (i.e. normal autoscaling) when omitted.
+    """
     ax1, ax2 = axes
-    ax1.clear()
-    ax2.clear()
+    range_df = full_df if full_df is not None else df
+
+    if not quick:
+        ax1.clear()
+        ax2.clear()
+        _style_axis(ax1)
+        _style_axis(ax2)
+        ax1.set_ylabel("Cash")
+        ax1.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: _fmt_money(v)))
+        ax2.set_xlabel("Minutes into match")
+        ax2.set_ylabel("Earn rate")
+        ax2.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: _fmt_money(v, "/min")))
+    else:
+        for artist in getattr(fig, "_data_artists", []):
+            try:
+                artist.remove()
+            except Exception:
+                pass
+    fig._data_artists = []
 
     x = df["minutes_elapsed"]
     cash = df["cash"]
     rate = df["rate_per_min"]
+    full_x = range_df["minutes_elapsed"]
+    full_cash = range_df["cash"]
+    full_rate = range_df["rate_per_min"]
+    baseline = full_cash.min()
 
     # --- Top panel: cash over time ---
-    ax1.plot(x, cash, color=CASH_LINE, linewidth=2.2, solid_joinstyle="round")
-    ax1.fill_between(x, cash, cash.min(), color=CASH_FILL, alpha=0.12)
+    (line1,) = ax1.plot(x, cash, color=CASH_LINE, linewidth=2.2, solid_joinstyle="round")
+    fill1 = ax1.fill_between(x, cash, baseline, color=CASH_FILL, alpha=0.12)
+    fig._data_artists += [line1, fill1]
 
     peak_idx = cash.idxmax()
-    ax1.scatter([x[peak_idx]], [cash[peak_idx]], color="#ffd60a", zorder=5, s=35, edgecolor=BG, linewidth=1)
-    ax1.annotate(
+    peak_dot = ax1.scatter([x[peak_idx]], [cash[peak_idx]], color="#ffd60a", zorder=5, s=35, edgecolor=BG, linewidth=1)
+    peak_ann = ax1.annotate(
         f"peak {_fmt_money(cash[peak_idx])}",
         xy=(x[peak_idx], cash[peak_idx]),
         xytext=(0, 10),
@@ -112,64 +151,81 @@ def draw(fig, axes, df, csv_path):
         fontsize=9,
         fontweight="bold",
     )
+    fig._data_artists += [peak_dot, peak_ann]
 
-    ax1.set_ylabel("Cash")
     title = f"Wardogs cash tracker — {csv_path}"
-    tag = _map_faction_tag(df)
+    tag = _map_faction_tag(range_df)
     if tag:
         title += f"  ·  {tag}"
     ax1.set_title(title, color=TEXT, fontsize=13, fontweight="bold", pad=14)
-    ax1.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: _fmt_money(v)))
-    _style_axis(ax1)
 
     current = cash.iloc[-1]
     net = cash.iloc[-1] - cash.iloc[0]
     minutes = max(x.iloc[-1], 0.01)
     avg_rate = net / minutes
     stats = f"current  {_fmt_money(current)}\nnet        {'+' if net >= 0 else ''}{net:,.0f}\navg rate  {'+' if avg_rate >= 0 else ''}{avg_rate:,.0f}/min"
-    ax1.text(
+    stats_box = ax1.text(
         0.99, 0.03, stats,
         transform=ax1.transAxes,
         ha="right", va="bottom",
         color=MUTED, fontsize=9, family="monospace",
         bbox=dict(boxstyle="round,pad=0.5", facecolor="#161b22", edgecolor=GRID),
     )
+    fig._data_artists.append(stats_box)
 
     # --- Bottom panel: earn rate ---
-    ax2.plot(x, rate, color=TEXT, linewidth=1, alpha=0.5)
-    ax2.fill_between(x, rate, 0, where=(rate >= 0), color=RATE_POS, alpha=0.35, interpolate=True)
-    ax2.fill_between(x, rate, 0, where=(rate < 0), color=RATE_NEG, alpha=0.35, interpolate=True)
-    ax2.axhline(0, color=MUTED, linewidth=0.8)
+    (line2,) = ax2.plot(x, rate, color=TEXT, linewidth=1, alpha=0.5)
+    fill_pos = ax2.fill_between(x, rate, 0, where=(rate >= 0), color=RATE_POS, alpha=0.35, interpolate=True)
+    fill_neg = ax2.fill_between(x, rate, 0, where=(rate < 0), color=RATE_NEG, alpha=0.35, interpolate=True)
+    fig._data_artists += [line2, fill_pos, fill_neg]
 
-    ax2.set_xlabel("Minutes into match")
-    ax2.set_ylabel("Earn rate")
-    ax2.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: _fmt_money(v, "/min")))
-    _style_axis(ax2)
+    if not quick:
+        # y=0 never moves, and ax2 isn't cleared in quick mode either, so
+        # this only needs to exist once per full draw, not every frame.
+        ax2.axhline(0, color=MUTED, linewidth=0.8)
 
-    _draw_life_markers(ax1, ax2, df)
+    fig._data_artists += _draw_life_markers(ax1, ax2, df)
 
-    fig.tight_layout()
-    _attach_hover(fig, ax1, ax2, df)
+    # Fixed axis limits sized to the FULL match, not just what's currently
+    # revealed — otherwise the plot silently rescales every single frame,
+    # which reads as jittery/unstable even when each frame renders fine.
+    pad_x = max(full_x.max() * 0.02, 0.5)
+    ax1.set_xlim(full_x.min() - pad_x, full_x.max() + pad_x)
+    ymin, ymax = full_cash.min(), full_cash.max()
+    pad_y = max((ymax - ymin) * 0.08, 50)
+    ax1.set_ylim(ymin - pad_y, ymax + pad_y)
+    rmin, rmax = full_rate.min(skipna=True), full_rate.max(skipna=True)
+    if pd.notna(rmin) and pd.notna(rmax):
+        pad_r = max((rmax - rmin) * 0.1, 10)
+        ax2.set_ylim(rmin - pad_r, rmax + pad_r)
+
+    if not quick:
+        fig.tight_layout()
+        _attach_hover(fig, ax1, ax2, range_df)
 
 
 def _draw_life_markers(ax1, ax2, df):
     """Vertical marker + label at each point `life` increments — i.e. every
     respawn into a new life mid-match (see tracker.py/mapinfo.py). Absent
-    entirely on older CSVs without a `life` column."""
+    entirely on older CSVs without a `life` column. Returns the artists it
+    created so the caller can track/remove them on the next quick frame."""
+    artists = []
     if "life" not in df.columns:
-        return
+        return artists
     life = df["life"].fillna(1)
     x = df["minutes_elapsed"]
     for idx in df.index[life.diff().fillna(0) > 0]:
         xi = x[idx]
-        ax1.axvline(xi, color=MUTED, linewidth=1, linestyle=":", alpha=0.7, zorder=3)
-        ax2.axvline(xi, color=MUTED, linewidth=1, linestyle=":", alpha=0.7, zorder=3)
-        ax1.annotate(
+        v1 = ax1.axvline(xi, color=MUTED, linewidth=1, linestyle=":", alpha=0.7, zorder=3)
+        v2 = ax2.axvline(xi, color=MUTED, linewidth=1, linestyle=":", alpha=0.7, zorder=3)
+        ann = ax1.annotate(
             f"Life {int(life[idx])}",
             xy=(xi, 1), xycoords=("data", "axes fraction"),
             xytext=(4, -4), textcoords="offset points",
             ha="left", va="top", color=MUTED, fontsize=8, fontweight="bold", zorder=6,
         )
+        artists += [v1, v2, ann]
+    return artists
 
 
 def _attach_hover(fig, ax1, ax2, df):
