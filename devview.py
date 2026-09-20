@@ -67,6 +67,24 @@ def _get(url, key, path, params=None):
     return resp.json()
 
 
+def _post(url, key, path, data):
+    resp = requests.post(
+        f"{url}/rest/v1/{path}",
+        headers={"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        json=data, timeout=15,
+    )
+    resp.raise_for_status()
+
+
+def _delete(url, key, path, params):
+    resp = requests.delete(
+        f"{url}/rest/v1/{path}",
+        headers={"apikey": key, "Authorization": f"Bearer {key}"},
+        params=params, timeout=15,
+    )
+    resp.raise_for_status()
+
+
 def _match_label(m, with_player=False):
     started = (m.get("started_at") or "")[:16].replace("T", " ")
     profit = m.get("final_profit")
@@ -113,6 +131,7 @@ class DevView:
         self._players = []
         self._matches = []
         self._all_matches = []
+        self._news = []
 
         left = tk.Frame(root, width=300, bg=CARD)
         left.pack(side="left", fill="y")
@@ -125,8 +144,10 @@ class DevView:
         tabs.pack(fill="x", padx=14, pady=(0, 10))
         self.tab_player_btn = TabButton(tabs, "By Player", lambda: self.set_tab("player"))
         self.tab_all_btn = TabButton(tabs, "All Matches", lambda: self.set_tab("all"))
+        self.tab_news_btn = TabButton(tabs, "News", lambda: self.set_tab("news"))
         self.tab_player_btn.pack(side="left", expand=True, fill="x", padx=(0, 4))
-        self.tab_all_btn.pack(side="left", expand=True, fill="x")
+        self.tab_all_btn.pack(side="left", expand=True, fill="x", padx=(0, 4))
+        self.tab_news_btn.pack(side="left", expand=True, fill="x")
 
         # ----- "By Player" tab: players list -> that player's matches -----
         self.player_tab = tk.Frame(left, bg=CARD)
@@ -146,6 +167,46 @@ class DevView:
         self.all_match_list = _styled_listbox(self.all_tab)
         self.all_match_list.pack(fill="both", expand=True, padx=14)
         self.all_match_list.bind("<<ListboxSelect>>", self._on_all_match_select)
+
+        # ----- "News" tab: what players see read-only in the app, written
+        # only here (service_role key) — the app itself has no write path.
+        self.news_tab = tk.Frame(left, bg=CARD)
+        _section_label(self.news_tab, "POSTED (most recent first)").pack(anchor="w", padx=14, pady=(0, 4))
+        self.news_list = _styled_listbox(self.news_tab)
+        self.news_list.configure(height=6)
+        self.news_list.pack(fill="x", padx=14)
+        self.news_list.bind("<<ListboxSelect>>", self._on_news_select)
+
+        tk.Button(
+            self.news_tab, text="Delete selected", command=self._delete_selected_news,
+            bg=CARD_ALT, fg=MUTED, activebackground=CARD_ALT, activeforeground=TEXT,
+            relief="flat", bd=0, cursor="hand2", font=(FONT, 8, "bold"), pady=6,
+        ).pack(fill="x", padx=14, pady=(6, 16))
+
+        _section_label(self.news_tab, "NEW POST").pack(anchor="w", padx=14, pady=(0, 4))
+        self.news_title_entry = tk.Entry(
+            self.news_tab, bg=CARD_ALT, fg=TEXT, insertbackground=TEXT,
+            relief="flat", font=(FONT, 9),
+        )
+        self.news_title_entry.pack(fill="x", padx=14, ipady=6)
+        tk.Label(self.news_tab, text="Title", bg=CARD, fg=MUTED, font=(FONT, 7)).pack(anchor="w", padx=14, pady=(2, 8))
+
+        self.news_content_text = tk.Text(
+            self.news_tab, bg=CARD_ALT, fg=TEXT, insertbackground=TEXT,
+            relief="flat", font=(FONT, 9), height=8, wrap="word",
+        )
+        self.news_content_text.pack(fill="both", expand=True, padx=14)
+        tk.Label(self.news_tab, text="Content (max 2000 characters)", bg=CARD, fg=MUTED,
+                 font=(FONT, 7)).pack(anchor="w", padx=14, pady=(2, 8))
+
+        self.news_status_label = tk.Label(self.news_tab, text="", bg=CARD, fg=MUTED, font=(FONT, 8))
+        self.news_status_label.pack(anchor="w", padx=14)
+
+        tk.Button(
+            self.news_tab, text="Post", command=self._submit_news, bg="#132530", fg=ACCENT,
+            activebackground="#132530", activeforeground=ACCENT,
+            relief="flat", bd=0, cursor="hand2", font=(FONT, 9, "bold"), pady=8,
+        ).pack(fill="x", padx=14, pady=(6, 14))
 
         tk.Button(
             left, text="Refresh", command=self.refresh, bg=CARD_ALT, fg=MUTED,
@@ -175,14 +236,17 @@ class DevView:
     def set_tab(self, tab):
         self.player_tab.pack_forget()
         self.all_tab.pack_forget()
-        is_player = tab == "player"
-        self.tab_player_btn.set_active(is_player)
-        self.tab_all_btn.set_active(not is_player)
-        (self.player_tab if is_player else self.all_tab).pack(fill="both", expand=True)
+        self.news_tab.pack_forget()
+        self.tab_player_btn.set_active(tab == "player")
+        self.tab_all_btn.set_active(tab == "all")
+        self.tab_news_btn.set_active(tab == "news")
+        frame = {"player": self.player_tab, "all": self.all_tab, "news": self.news_tab}[tab]
+        frame.pack(fill="both", expand=True)
 
     def refresh(self):
         self.load_players()
         self.load_all_matches()
+        self.load_news()
         player_word = "player" if len(self._players) == 1 else "players"
         match_word = "match" if len(self._all_matches) == 1 else "matches"
         self.stats_label.configure(
@@ -232,6 +296,52 @@ class DevView:
         sel = self.all_match_list.curselection()
         if sel:
             self._show_match(self._all_matches[sel[0]])
+
+    def load_news(self):
+        self._news = _get(self.url, self.key, "news_posts", params={"order": "created_at.desc", "select": "*"})
+        self.news_list.delete(0, "end")
+        for post in self._news:
+            when = (post.get("created_at") or "")[:10]
+            self.news_list.insert("end", f'{when}  {post.get("title") or "(untitled)"}')
+
+    def _on_news_select(self, _event):
+        sel = self.news_list.curselection()
+        if not sel:
+            return
+        post = self._news[sel[0]]
+        self.news_title_entry.delete(0, "end")
+        self.news_title_entry.insert(0, post.get("title") or "")
+        self.news_content_text.delete("1.0", "end")
+        self.news_content_text.insert("1.0", post.get("content") or "")
+
+    def _delete_selected_news(self):
+        sel = self.news_list.curselection()
+        if not sel:
+            self.news_status_label.configure(text="Select a post above first.", fg="#f85149")
+            return
+        post = self._news[sel[0]]
+        _delete(self.url, self.key, "news_posts", params={"id": f'eq.{post["id"]}'})
+        self.news_status_label.configure(text="Deleted.", fg=MUTED)
+        self.load_news()
+
+    def _submit_news(self):
+        title = self.news_title_entry.get().strip()
+        content = self.news_content_text.get("1.0", "end").strip()
+        if not title or not content:
+            self.news_status_label.configure(text="Title and content are both required.", fg="#f85149")
+            return
+        if len(title) > 120 or len(content) > 2000:
+            self.news_status_label.configure(text="Title max 120 / content max 2000 characters.", fg="#f85149")
+            return
+        try:
+            _post(self.url, self.key, "news_posts", {"title": title, "content": content})
+        except requests.RequestException as e:
+            self.news_status_label.configure(text=f"Failed: {e}", fg="#f85149")
+            return
+        self.news_title_entry.delete(0, "end")
+        self.news_content_text.delete("1.0", "end")
+        self.news_status_label.configure(text="Posted.", fg="#3fb950")
+        self.load_news()
 
     def _show_match(self, match):
         ticks = _get(

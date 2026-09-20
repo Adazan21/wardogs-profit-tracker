@@ -48,13 +48,27 @@ create table if not exists role_xp_events (
     created_at timestamptz not null default now()
 );
 
+-- One-way dev news/announcements feed, read by every player. The mirror
+-- image of every table above: no INSERT policy for anon at all — only the
+-- service_role key (devview.py's "Post News", never the shipped app) can
+-- write, so there's no public write surface and nothing to moderate.
+-- Players just read.
+create table if not exists news_posts (
+    id uuid primary key default gen_random_uuid(),
+    title text not null check (char_length(title) between 1 and 120),
+    content text not null check (char_length(content) between 1 and 2000),
+    created_at timestamptz not null default now()
+);
+
 create index if not exists match_ticks_match_id_idx on match_ticks (match_id);
 create index if not exists matches_steam_id_idx on matches (steam_id);
 create index if not exists role_xp_events_steam_id_idx on role_xp_events (steam_id);
+create index if not exists news_posts_created_at_idx on news_posts (created_at desc);
 
 alter table matches enable row level security;
 alter table match_ticks enable row level security;
 alter table role_xp_events enable row level security;
+alter table news_posts enable row level security;
 
 create policy "anon can insert matches" on matches
     for insert to anon with check (true);
@@ -64,3 +78,6 @@ create policy "anon can insert match_ticks" on match_ticks
 
 create policy "anon can insert role_xp_events" on role_xp_events
     for insert to anon with check (true);
+
+create policy "anon can read news_posts" on news_posts
+    for select to anon using (true);

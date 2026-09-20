@@ -39,6 +39,7 @@ import mapinfo
 import cloudsync
 import updater
 import autolaunch
+import news
 
 # ---------------------------------------------------------------- palette --
 APP_BG = "#080a0f"
@@ -456,6 +457,46 @@ class SettingsDialog(tk.Toplevel):
         autolaunch.set_enabled(self.autolaunch_var.get())
 
 
+class NewsDialog(tk.Toplevel):
+    """Read-only dev news/announcements feed — see news.py. Fetched fresh
+    each time this opens (cheap, and should always show what's actually
+    current) via the shipped anon key, which can only read this one table
+    and nothing else — see supabase_schema.sql."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("News")
+        self.configure(bg=CARD)
+        self.geometry("480x560")
+        self.minsize(360, 320)
+        self.transient(parent)
+
+        tk.Label(self, text="News & Updates", bg=CARD, fg=TEXT,
+                 font=(FONT, 14, "bold")).pack(anchor="w", padx=24, pady=(20, 10))
+
+        body = ScrollableList(self, CARD)
+        body.pack(fill="both", expand=True, padx=16, pady=(0, 20))
+
+        posts = news.fetch_news()
+        if not posts:
+            tk.Label(body.inner, text="No news yet — check back later.", bg=CARD, fg=MUTED,
+                     font=(FONT, 9, "italic")).pack(anchor="w", padx=8, pady=10)
+        for post in posts:
+            self._add_post(body.inner, post)
+
+    def _add_post(self, parent, post):
+        card = tk.Frame(parent, bg=CARD_ALT)
+        card.pack(fill="x", padx=8, pady=(0, 10))
+        header = tk.Frame(card, bg=CARD_ALT)
+        header.pack(fill="x", padx=14, pady=(12, 2))
+        tk.Label(header, text=post.get("title") or "(untitled)", bg=CARD_ALT, fg=TEXT,
+                 font=(FONT, 11, "bold"), wraplength=300, justify="left").pack(side="left")
+        when = (post.get("created_at") or "")[:10]
+        tk.Label(header, text=when, bg=CARD_ALT, fg=MUTED, font=(FONT, 8)).pack(side="right")
+        tk.Label(card, text=post.get("content") or "", bg=CARD_ALT, fg=MUTED,
+                 font=(FONT, 9), justify="left", wraplength=400).pack(anchor="w", padx=14, pady=(0, 12))
+
+
 # --------------------------------------------------------------------- app --
 class App:
     def __init__(self, root):
@@ -515,6 +556,13 @@ class App:
             font=(FONT, 8, "bold"), activebackground=CARD, activeforeground=TEXT,
         )
         self.settings_button.pack(side="right", padx=(0, 4))
+
+        self.news_button = tk.Button(
+            header, text="News", command=lambda: NewsDialog(self.root),
+            bg=CARD, fg=MUTED, relief="flat", bd=0, cursor="hand2",
+            font=(FONT, 8, "bold"), activebackground=CARD, activeforeground=TEXT,
+        )
+        self.news_button.pack(side="right", padx=(0, 4))
 
         body = tk.Frame(self.root, bg=APP_BG)
         body.pack(side="top", fill="both", expand=True)
