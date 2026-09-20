@@ -513,7 +513,7 @@ class App:
     def __init__(self, root):
         self.root = root
         root.title("")  # the header already shows WARDOGS / Profit Tracker; a caption-bar label was just noise
-        root.geometry("1180x720")
+        root.geometry("1820x1080")
         root.configure(bg=APP_BG)
         root.minsize(880, 560)
         root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -1169,23 +1169,33 @@ def _set_window_icon(root):
         pass  # e.g. icon file missing — cosmetic only, never worth failing startup over
 
 
-def _enable_dark_titlebar(root):
-    """Windows draws the title bar white/light by default regardless of
-    the app's own theme — a stark banner sitting on top of an otherwise
-    all-dark window. DWMWA_USE_IMMERSIVE_DARK_MODE (the same OS mechanism
-    apps like Explorer use for their own dark mode) makes Windows draw it
-    dark instead, unconditionally, regardless of the *system's* light/dark
-    setting. Attribute number differs by Windows build (20 on Windows 11 /
-    Windows 10 20H1+, 19 on older Windows 10) — harmless to just try both."""
+def _blend_titlebar_with_theme(root):
+    """Windows draws the title bar/window border white/light by default
+    regardless of the app's own theme — a stark banner sitting on top of
+    an otherwise all-dark window. This goes past just "dark" to make the
+    OS chrome disappear into the app: DWMWA_CAPTION_COLOR and
+    DWMWA_BORDER_COLOR (Windows 11 only) set the caption and window-edge
+    color to CARD exactly — the same color as the app's own header, right
+    below it — so there's no visible seam between OS frame and app content
+    at all. DWMWA_USE_IMMERSIVE_DARK_MODE is set unconditionally too, as a
+    fallback for Windows 10 (no per-color API there, but plain dark still
+    reads far closer to "invisible" than the OS default white)."""
     try:
         root.update_idletasks()
         hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
-        value = ctypes.c_int(1)
-        for attr in (20, 19):
-            if ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                hwnd, attr, ctypes.byref(value), ctypes.sizeof(value)
-            ) == 0:
+
+        dark = ctypes.c_int(1)
+        for attr in (20, 19):  # DWMWA_USE_IMMERSIVE_DARK_MODE: 20 on Win11/Win10 20H1+, 19 on older Win10
+            if ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(dark), ctypes.sizeof(dark)) == 0:
                 break
+
+        # COLORREF is 0x00BBGGRR, not the usual 0xRRGGBB.
+        r, g, b = int(CARD[1:3], 16), int(CARD[3:5], 16), int(CARD[5:7], 16)
+        card_colorref = ctypes.c_int((b << 16) | (g << 8) | r)
+        DWMWA_BORDER_COLOR = 34
+        DWMWA_CAPTION_COLOR = 35
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, ctypes.byref(card_colorref), ctypes.sizeof(card_colorref))
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, ctypes.byref(card_colorref), ctypes.sizeof(card_colorref))
     except Exception:
         pass  # cosmetic only — never worth failing startup over
 
@@ -1199,7 +1209,7 @@ def main():
     autolaunch.apply_default_if_unset()
     root = tk.Tk()
     _set_window_icon(root)
-    _enable_dark_titlebar(root)
+    _blend_titlebar_with_theme(root)
     App(root)
     root.mainloop()
 
