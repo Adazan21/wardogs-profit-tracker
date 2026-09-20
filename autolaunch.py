@@ -21,6 +21,7 @@ from source is a dev workflow anyway.
 """
 
 import ctypes
+from ctypes import wintypes
 import json
 import os
 import subprocess
@@ -35,7 +36,6 @@ RUN_VALUE_NAME = "WardogsProfitTracker"
 
 MUTEX_NAME = "Global\\WardogsProfitTrackerSingleInstance"
 WATCHER_MUTEX_NAME = "Global\\WardogsProfitTrackerWatcherSingleInstance"
-WINDOW_TITLE = "Wardogs Profit Tracker"
 ERROR_ALREADY_EXISTS = 183
 SW_RESTORE = 9
 WATCH_POLL_SECONDS = 5
@@ -151,6 +151,53 @@ def run_watcher():
 
 
 # ------------------------------------------------------- single instance --
+def _other_instance_pids():
+    """PIDs of other running processes with this same executable name
+    (there should be at most one, since the mutex below enforces that) —
+    via tasklist, same pattern as mapinfo.process_status(). Used to find
+    the other instance's window without relying on its title text, which
+    app.py leaves blank (a plain window-text match can't be used here)."""
+    target_name = os.path.basename(sys.executable)
+    try:
+        out = subprocess.run(
+            ["tasklist", "/FI", f"IMAGENAME eq {target_name}", "/FO", "CSV", "/NH"],
+            capture_output=True, text=True, timeout=3,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    pids = []
+    for line in out.strip().splitlines():
+        fields = [p.strip('"') for p in line.split(",")]
+        if len(fields) >= 2:
+            try:
+                pid = int(fields[1])
+            except ValueError:
+                continue
+            if pid != os.getpid():
+                pids.append(pid)
+    return pids
+
+
+def _find_window_for_pids(pids):
+    if not pids:
+        return None
+    found = []
+    proc_type = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+
+    def callback(hwnd, _lparam):
+        if ctypes.windll.user32.IsWindowVisible(hwnd):
+            owner_pid = wintypes.DWORD()
+            ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner_pid))
+            if owner_pid.value in pids:
+                found.append(hwnd)
+                return False  # stop enumerating, one is enough
+        return True
+
+    ctypes.windll.user32.EnumWindows(proc_type(callback), 0)
+    return found[0] if found else None
+
+
 def acquire_single_instance_lock():
     """True if this is the only running copy (and holds the lock for the
     rest of the process's life). False if another copy is already
@@ -161,7 +208,7 @@ def acquire_single_instance_lock():
     handle = ctypes.windll.kernel32.CreateMutexW(None, False, MUTEX_NAME)
     already_running = ctypes.windll.kernel32.GetLastError() == ERROR_ALREADY_EXISTS
     if already_running:
-        hwnd = ctypes.windll.user32.FindWindowW(None, WINDOW_TITLE)
+        hwnd = _find_window_for_pids(_other_instance_pids())
         if hwnd:
             ctypes.windll.user32.ShowWindow(hwnd, SW_RESTORE)
             ctypes.windll.user32.SetForegroundWindow(hwnd)

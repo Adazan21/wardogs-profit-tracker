@@ -13,6 +13,7 @@ Usage:
 """
 
 import csv
+import ctypes
 import glob
 import math
 import os
@@ -135,9 +136,25 @@ def ui_icon(name):
     return _ui_icon_cache[name]
 
 
-def list_sessions():
+SORT_CYCLE = ["recent", "profit_desc", "profit_asc"]
+SORT_LABELS = {
+    "recent": "↕  Most recent",
+    "profit_desc": "↕  Profit: high → low",
+    "profit_asc": "↕  Profit: low → high",
+}
+
+
+def list_sessions(sort_mode="recent"):
     files = glob.glob("session_*.csv")
-    files.sort(key=os.path.getmtime, reverse=True)
+    if sort_mode == "recent":
+        files.sort(key=os.path.getmtime, reverse=True)
+    else:
+        # A session with no readings yet (just detected, before the first
+        # value lands) has no summary to sort by — treated as net 0 rather
+        # than excluded, so it still shows up somewhere sensible instead of
+        # vanishing from the list under a non-default sort.
+        nets = {f: (session_summary(f) or {}).get("net", 0) for f in files}
+        files.sort(key=lambda f: nets[f], reverse=(sort_mode == "profit_desc"))
     return files
 
 
@@ -495,7 +512,7 @@ class SettingsDialog(tk.Toplevel):
 class App:
     def __init__(self, root):
         self.root = root
-        root.title("Wardogs Profit Tracker")
+        root.title("")  # the header already shows WARDOGS / Profit Tracker; a caption-bar label was just noise
         root.geometry("1180x720")
         root.configure(bg=APP_BG)
         root.minsize(880, 560)
@@ -509,6 +526,7 @@ class App:
         self.selected_session = None
         self.cards = {}
         self._sessions_dirty = False
+        self.sort_mode = "recent"
 
         self._graph_df = None
         self._animating = False
@@ -581,6 +599,14 @@ class App:
         tk.Button(side_header, text="⟳", command=lambda: self.refresh_sessions(), bg=CARD, fg=MUTED,
                   relief="flat", bd=0, cursor="hand2", font=(FONT, 11),
                   activebackground=CARD, activeforeground=TEXT).pack(side="right")
+
+        self.sort_button = tk.Button(
+            sidebar, text=SORT_LABELS[self.sort_mode], command=self._cycle_sort,
+            bg=CARD_ALT, fg=MUTED, relief="flat", bd=0, cursor="hand2",
+            font=(FONT, 8, "bold"), activebackground=CARD_ALT, activeforeground=TEXT,
+            anchor="w", padx=8, pady=5,
+        )
+        self.sort_button.pack(fill="x", padx=16, pady=(0, 10))
 
         self.list_container = ScrollableList(sidebar, CARD)
         self.list_container.pack(fill="both", expand=True, padx=10, pady=(0, 10))
@@ -802,8 +828,13 @@ class App:
                 tk.Label(row, text=f"+{gain} this match", bg=CARD, fg=GOLD, font=(FONT, 9, "bold")).pack(side="left", padx=(16, 0))
 
     # ---------- session list ----------
+    def _cycle_sort(self):
+        self.sort_mode = SORT_CYCLE[(SORT_CYCLE.index(self.sort_mode) + 1) % len(SORT_CYCLE)]
+        self.sort_button.configure(text=SORT_LABELS[self.sort_mode])
+        self.refresh_sessions()
+
     def refresh_sessions(self, select_latest=False):
-        sessions = list_sessions()
+        sessions = list_sessions(self.sort_mode)
         xp_log = load_xp_log()
         self.list_container.clear()
         self.cards = {}
@@ -1138,6 +1169,27 @@ def _set_window_icon(root):
         pass  # e.g. icon file missing — cosmetic only, never worth failing startup over
 
 
+def _enable_dark_titlebar(root):
+    """Windows draws the title bar white/light by default regardless of
+    the app's own theme — a stark banner sitting on top of an otherwise
+    all-dark window. DWMWA_USE_IMMERSIVE_DARK_MODE (the same OS mechanism
+    apps like Explorer use for their own dark mode) makes Windows draw it
+    dark instead, unconditionally, regardless of the *system's* light/dark
+    setting. Attribute number differs by Windows build (20 on Windows 11 /
+    Windows 10 20H1+, 19 on older Windows 10) — harmless to just try both."""
+    try:
+        root.update_idletasks()
+        hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
+        value = ctypes.c_int(1)
+        for attr in (20, 19):
+            if ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                hwnd, attr, ctypes.byref(value), ctypes.sizeof(value)
+            ) == 0:
+                break
+    except Exception:
+        pass  # cosmetic only — never worth failing startup over
+
+
 def main():
     if "--watch" in sys.argv:
         autolaunch.run_watcher()  # headless — waits for Wardogs, then launches the GUI; never returns
@@ -1147,6 +1199,7 @@ def main():
     autolaunch.apply_default_if_unset()
     root = tk.Tk()
     _set_window_icon(root)
+    _enable_dark_titlebar(root)
     App(root)
     root.mainloop()
 
