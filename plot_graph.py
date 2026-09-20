@@ -160,25 +160,30 @@ def draw(fig, axes, df, csv_path, quick=False, full_df=None):
     )
     fig._data_artists += [peak_dot, peak_ann]
 
-    title = f"Wardogs cash tracker — {csv_path}"
+    main_title = f"Wardogs cash tracker — {csv_path}"
     tag = _map_faction_tag(range_df)
     if tag:
-        title += f"  ·  {tag}"
-    ax1.set_title(title, color=TEXT, fontsize=13, fontweight="bold", pad=14)
+        main_title += f"  ·  {tag}"
+    fig.suptitle(main_title, color=TEXT, fontsize=13, fontweight="bold")
 
+    # A second, smaller title on ax1 rather than text overlaid on the plot
+    # itself (the old approach — wherever it was anchored, it ended up
+    # sitting on top of the line, a life-marker label, or the peak
+    # annotation often enough to matter, since cash starts at 0 and
+    # commonly ends up near either edge of its own range). Stacked below
+    # the figure's own suptitle rather than sharing its row (loc="right"
+    # alongside it collided for anything but a short filename) — both
+    # titles live in the margin above the axes, so neither can ever cover
+    # the data below.
     current = cash.iloc[-1]
     net = cash.iloc[-1] - cash.iloc[0]
     minutes = max(x.iloc[-1], 0.01)
     avg_rate = net / minutes
-    stats = f"current  {_fmt_money(current)}\nnet        {'+' if net >= 0 else ''}{net:,.0f}\navg rate  {'+' if avg_rate >= 0 else ''}{avg_rate:,.0f}/min"
-    stats_box = ax1.text(
-        0.99, 0.03, stats,
-        transform=ax1.transAxes,
-        ha="right", va="bottom",
-        color=MUTED, fontsize=9, family="monospace",
-        bbox=dict(boxstyle="round,pad=0.5", facecolor="#161b22", edgecolor=GRID),
+    stats_line = (
+        f"{_fmt_money(current)}   net {'+' if net >= 0 else ''}{net:,.0f}   "
+        f"{'+' if avg_rate >= 0 else ''}{avg_rate:,.0f}/min"
     )
-    fig._data_artists.append(stats_box)
+    ax1.set_title(stats_line, color=MUTED, fontsize=9, family="monospace", pad=10)
 
     # --- Bottom panel: earn rate ---
     (line2,) = ax2.plot(x, rate, color=TEXT, linewidth=1, alpha=0.5)
