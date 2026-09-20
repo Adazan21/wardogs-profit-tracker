@@ -118,8 +118,11 @@ class DevView:
         left.pack(side="left", fill="y")
         left.pack_propagate(False)
 
+        self.stats_label = tk.Label(left, text="", bg=CARD, fg=MUTED, font=(FONT, 9, "bold"))
+        self.stats_label.pack(anchor="w", padx=14, pady=(16, 8))
+
         tabs = tk.Frame(left, bg=CARD)
-        tabs.pack(fill="x", padx=14, pady=(16, 10))
+        tabs.pack(fill="x", padx=14, pady=(0, 10))
         self.tab_player_btn = TabButton(tabs, "By Player", lambda: self.set_tab("player"))
         self.tab_all_btn = TabButton(tabs, "All Matches", lambda: self.set_tab("all"))
         self.tab_player_btn.pack(side="left", expand=True, fill="x", padx=(0, 4))
@@ -180,6 +183,11 @@ class DevView:
     def refresh(self):
         self.load_players()
         self.load_all_matches()
+        player_word = "player" if len(self._players) == 1 else "players"
+        match_word = "match" if len(self._all_matches) == 1 else "matches"
+        self.stats_label.configure(
+            text=f"{len(self._players)} {player_word}  ·  {len(self._all_matches)} {match_word} logged"
+        )
 
     def load_players(self):
         rows = _get(self.url, self.key, "matches", params={"select": "steam_id,persona_name"})
