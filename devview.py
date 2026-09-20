@@ -30,6 +30,18 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 import plot_graph
 
+# Same palette as app.py — duplicated rather than imported so this stays a
+# lightweight standalone script (importing app.py would drag in tracker.py/
+# richpresence.py/cloudsync.py/updater.py, none of which this needs).
+APP_BG = "#080a0f"
+CARD = plot_graph.BG
+CARD_ALT = "#11161d"
+BORDER = "#21262d"
+TEXT = plot_graph.TEXT
+MUTED = plot_graph.MUTED
+ACCENT = plot_graph.CASH_LINE
+FONT = "Segoe UI"
+
 SECRETS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "devview_secrets.json")
 
 
@@ -63,70 +75,107 @@ def _match_label(m, with_player=False):
     return f'{prefix}{started}  {m.get("map") or "?"}  {profit_txt}'
 
 
+def _section_label(parent, text):
+    return tk.Label(parent, text=text, bg=parent["bg"], fg=MUTED, font=(FONT, 8, "bold"))
+
+
+def _styled_listbox(parent):
+    return tk.Listbox(
+        parent, bg=CARD_ALT, fg=TEXT, selectbackground="#132530", selectforeground=ACCENT,
+        highlightthickness=0, bd=0, relief="flat", font=(FONT, 9), activestyle="none",
+    )
+
+
+class TabButton(tk.Button):
+    def __init__(self, parent, text, command):
+        super().__init__(
+            parent, text=text, command=command, font=(FONT, 8, "bold"),
+            relief="flat", bd=0, cursor="hand2", padx=10, pady=6,
+        )
+        self.set_active(False)
+
+    def set_active(self, active):
+        if active:
+            self.configure(bg="#132530", fg=ACCENT, activebackground="#132530", activeforeground=ACCENT)
+        else:
+            self.configure(bg=CARD_ALT, fg=MUTED, activebackground=CARD_ALT, activeforeground=TEXT)
+
+
 class DevView:
     def __init__(self, root):
         self.root = root
         root.title("Wardogs — Dev Match Viewer")
         root.geometry("1100x680")
+        root.configure(bg=APP_BG)
+        root.minsize(820, 520)
 
         self.url, self.key = _load_secrets()
         self._players = []
         self._matches = []
         self._all_matches = []
 
-        left = tk.Frame(root, width=300)
+        left = tk.Frame(root, width=300, bg=CARD)
         left.pack(side="left", fill="y")
         left.pack_propagate(False)
 
-        tabs = tk.Frame(left)
-        tabs.pack(fill="x", padx=10, pady=(10, 4))
-        self.tab_player_btn = tk.Button(tabs, text="By Player", command=lambda: self.set_tab("player"))
-        self.tab_all_btn = tk.Button(tabs, text="All Matches", command=lambda: self.set_tab("all"))
-        self.tab_player_btn.pack(side="left", expand=True, fill="x")
+        tabs = tk.Frame(left, bg=CARD)
+        tabs.pack(fill="x", padx=14, pady=(16, 10))
+        self.tab_player_btn = TabButton(tabs, "By Player", lambda: self.set_tab("player"))
+        self.tab_all_btn = TabButton(tabs, "All Matches", lambda: self.set_tab("all"))
+        self.tab_player_btn.pack(side="left", expand=True, fill="x", padx=(0, 4))
         self.tab_all_btn.pack(side="left", expand=True, fill="x")
 
-        tk.Button(left, text="Refresh", command=self.refresh).pack(fill="x", padx=10, pady=(0, 8))
-
         # ----- "By Player" tab: players list -> that player's matches -----
-        self.player_tab = tk.Frame(left)
-        tk.Label(self.player_tab, text="PLAYERS", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=10, pady=(6, 4))
-        self.player_list = tk.Listbox(self.player_tab, exportselection=False)
-        self.player_list.pack(fill="both", expand=True, padx=10)
+        self.player_tab = tk.Frame(left, bg=CARD)
+        _section_label(self.player_tab, "PLAYERS").pack(anchor="w", padx=14, pady=(0, 4))
+        self.player_list = _styled_listbox(self.player_tab)
+        self.player_list.pack(fill="both", expand=True, padx=14)
         self.player_list.bind("<<ListboxSelect>>", self._on_player_select)
 
-        tk.Label(self.player_tab, text="MATCHES", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=10, pady=(16, 4))
-        self.match_list = tk.Listbox(self.player_tab, exportselection=False)
-        self.match_list.pack(fill="both", expand=True, padx=10)
+        _section_label(self.player_tab, "MATCHES").pack(anchor="w", padx=14, pady=(16, 4))
+        self.match_list = _styled_listbox(self.player_tab)
+        self.match_list.pack(fill="both", expand=True, padx=14)
         self.match_list.bind("<<ListboxSelect>>", self._on_match_select)
 
         # ----- "All Matches" tab: every match, every player, most recent first -----
-        self.all_tab = tk.Frame(left)
-        tk.Label(self.all_tab, text="ALL MATCHES (most recent first)",
-                 font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=10, pady=(6, 4))
-        self.all_match_list = tk.Listbox(self.all_tab, exportselection=False)
-        self.all_match_list.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        self.all_tab = tk.Frame(left, bg=CARD)
+        _section_label(self.all_tab, "ALL MATCHES · MOST RECENT FIRST").pack(anchor="w", padx=14, pady=(0, 4))
+        self.all_match_list = _styled_listbox(self.all_tab)
+        self.all_match_list.pack(fill="both", expand=True, padx=14)
         self.all_match_list.bind("<<ListboxSelect>>", self._on_all_match_select)
 
-        right = tk.Frame(root)
-        right.pack(side="left", fill="both", expand=True)
-        self.fig, self.axes = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
-        self.canvas = FigureCanvasTkAgg(self.fig, master=right)
-        self.canvas.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
+        tk.Button(
+            left, text="Refresh", command=self.refresh, bg=CARD_ALT, fg=MUTED,
+            activebackground=CARD_ALT, activeforeground=TEXT, relief="flat", bd=0,
+            cursor="hand2", font=(FONT, 8, "bold"), pady=8,
+        ).pack(fill="x", padx=14, pady=14)
 
+        right = tk.Frame(root, bg=APP_BG)
+        right.pack(side="left", fill="both", expand=True)
+        self.fig, self.axes = plt.subplots(2, 1, figsize=(8, 6), sharex=True, facecolor=CARD)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=right)
+        self.canvas.get_tk_widget().configure(bg=CARD, highlightthickness=0)
+        self.canvas.get_tk_widget().pack(fill="both", expand=True, padx=14, pady=14)
+
+        self._show_placeholder("Pick a match on the left")
         self.set_tab("all")
         self.refresh()
+
+    def _show_placeholder(self, message):
+        for ax in self.axes:
+            ax.clear()
+            ax.set_facecolor(CARD)
+            ax.axis("off")
+        self.fig.text(0.5, 0.5, message, ha="center", va="center", color=MUTED, fontsize=12)
+        self.canvas.draw_idle()
 
     def set_tab(self, tab):
         self.player_tab.pack_forget()
         self.all_tab.pack_forget()
-        if tab == "player":
-            self.player_tab.pack(fill="both", expand=True)
-            self.tab_player_btn.configure(relief="sunken")
-            self.tab_all_btn.configure(relief="raised")
-        else:
-            self.all_tab.pack(fill="both", expand=True)
-            self.tab_all_btn.configure(relief="sunken")
-            self.tab_player_btn.configure(relief="raised")
+        is_player = tab == "player"
+        self.tab_player_btn.set_active(is_player)
+        self.tab_all_btn.set_active(not is_player)
+        (self.player_tab if is_player else self.all_tab).pack(fill="both", expand=True)
 
     def refresh(self):
         self.load_players()
@@ -150,6 +199,8 @@ class DevView:
         self.all_match_list.delete(0, "end")
         for m in self._all_matches:
             self.all_match_list.insert("end", _match_label(m, with_player=True))
+        if not self._all_matches:
+            self._show_placeholder("No matches uploaded yet")
 
     def _on_player_select(self, _event):
         sel = self.player_list.curselection()
@@ -181,6 +232,8 @@ class DevView:
         )
         if not ticks:
             return
+        for ax in self.axes:
+            ax.axis("on")
         df = plot_graph.load_df(pd.DataFrame(ticks))
         label = f'{match.get("persona_name") or match["steam_id"]} — {(match.get("started_at") or "")[:16]}'
         plot_graph.draw(self.fig, self.axes, df, label)
