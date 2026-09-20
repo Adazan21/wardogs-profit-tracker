@@ -164,16 +164,22 @@ self-updates if a newer one exists (`updater.py`) — running from source
 (`python app.py`) never does this, since there's nothing to replace; just
 `git pull`. To ship a new version:
 
-1. Bump `APP_VERSION` in `version.py` (e.g. `"1.1.0"`).
-2. Rebuild: `python -m PyInstaller profitdog.spec`.
-3. Tag and publish a GitHub Release whose tag matches (a `v` prefix is
-   fine — `v1.1.0`), with `dist/profitdog.exe` attached as a release
-   asset named exactly `profitdog.exe`:
+1. Bump `APP_VERSION` in `version.py` (e.g. `"1.1.0"`) — and `FileVersion`/
+   `ProductVersion` in `version_info.txt` to match.
+2. Tag and push:
    ```
    git tag v1.1.0
    git push origin v1.1.0
-   gh release create v1.1.0 dist/profitdog.exe --title v1.1.0 --notes "..."
    ```
+That's it — `.github/workflows/release.yml` builds `profitdog.exe` from
+that tag on a clean GitHub-hosted Windows runner and attaches it to a
+matching GitHub Release automatically (a couple minutes). Building via
+CI rather than by hand on a developer's own machine isn't just tidier —
+it's what SignPath Foundation's free code-signing program for open-source
+projects requires ("binary artifacts must be built from source code in a
+verifiable way"); see their [terms](https://signpath.org/terms.html) for
+the rest of the eligibility requirements.
+
 Players on an older version pick it up next time they launch the app —
 downloaded in the background, swapped in, and relaunched automatically
 (a few seconds' pause with a "Updating…" status), no action needed on

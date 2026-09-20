@@ -1,5 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
+import steamworkspy
+
+# Resolved from the installed package rather than a hardcoded machine path —
+# a fixed local path (e.g. A:\python\...) only works on whoever's laptop it
+# was written on and breaks on any other machine, including a CI runner,
+# which SignPath's "verifiable build from source" requirement needs to work.
+_steamworkspy_dll = os.path.join(os.path.dirname(steamworkspy.__file__), 'steam_api64.dll')
 
 a = Analysis(
     ['app.py'],
@@ -8,7 +16,7 @@ a = Analysis(
         # ctypes.WinDLL loads this dynamically (richpresence.py) — PyInstaller's
         # static analysis can't see that the way it sees a normal `import`, so
         # it has to be listed explicitly or the frozen exe won't have it.
-        (r'A:\python\lib\site-packages\steamworkspy\steam_api64.dll', '.'),
+        (_steamworkspy_dll, '.'),
     ],
     datas=[
         # Role XP icons (app.py's role_icon()) — plain PNGs, so PyInstaller's
@@ -46,4 +54,5 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon='icons/app_icon.ico',
+    version='version_info.txt',
 )

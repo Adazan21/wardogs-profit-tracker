@@ -1,0 +1,56 @@
+name: Build and release
+
+# Builds profitdog.exe from source on a Windows GitHub-hosted runner and
+# attaches it to the matching GitHub Release, triggered by pushing a
+# version tag (git tag vX.Y.Z && git push origin vX.Y.Z — see README's
+# "Releasing an update" section).
+#
+# This exists so the exe distributed to players is built from an
+# auditable, reproducible pipeline instead of by hand on a developer's own
+# machine — a real prerequisite for SignPath Foundation's free code-signing
+# program for open-source projects, which requires "binary artifacts built
+# from source code in a verifiable way" (see docs/ and the repo's LICENSE
+# for the other half of their eligibility requirements: an OSI-approved
+# license with no proprietary components).
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build profitdog.exe
+        run: pyinstaller profitdog.spec
+
+      - name: Verify the build produced an exe
+        shell: bash
+        run: test -f dist/profitdog.exe
+
+      - name: Create/update the release and upload the exe
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/profitdog.exe --clobber
+          else
+            gh release create "$tag" dist/profitdog.exe --title "$tag" --generate-notes
+          fi
