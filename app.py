@@ -435,7 +435,7 @@ class SettingsDialog(tk.Toplevel):
 
         if autolaunch.supported():
             self.autolaunch_var = tk.BooleanVar(value=autolaunch.is_enabled())
-            tk.Checkbutton(self, text="Launch automatically when Windows starts",
+            tk.Checkbutton(self, text="Launch automatically when Wardogs starts",
                             variable=self.autolaunch_var, command=self._on_autolaunch_toggle,
                             **cb_kwargs).pack(anchor="w", fill="x", pady=(0, 20), **pad)
 
@@ -989,6 +989,9 @@ class App:
 
 
 def main():
+    if "--watch" in sys.argv:
+        autolaunch.run_watcher()  # headless — waits for Wardogs, then launches the GUI; never returns
+        return
     if not autolaunch.acquire_single_instance_lock():
         return  # another copy is already running — its window was just brought to front instead
     autolaunch.apply_default_if_unset()
