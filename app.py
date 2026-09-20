@@ -247,9 +247,8 @@ class StatTile(tk.Canvas):
 
     def render(self, value, accent=TEXT):
         self.delete("all")
-        draw_round_rect(self, 0, 0, self.w, self.h, 14, fill=CARD_ALT, outline="")
-        self.create_text(18, 20, anchor="w", text=self.label.upper(), fill=MUTED, font=(FONT, 8, "bold"))
-        self.create_text(18, self.h - 24, anchor="w", text=value, fill=accent, font=(FONT, 18, "bold"))
+        self.create_text(2, 20, anchor="w", text=self.label.upper(), fill=MUTED, font=(FONT, 8, "bold"))
+        self.create_text(2, self.h - 24, anchor="w", text=value, fill=accent, font=(FONT, 18, "bold"))
 
 
 class StatusPill(tk.Canvas):
@@ -901,7 +900,7 @@ class App:
         self._clear_fig_text()
         for ax in self.axes:
             ax.axis("on")
-        plot_graph.draw(self.fig, self.axes, df, display_name(csv_path), quick=quick, full_df=full_df, title_prefix="")
+        plot_graph.draw(self.fig, self.axes, df, display_name(csv_path), quick=quick, full_df=full_df, show_title=False)
         self._apply_panel_split()
         self.canvas.draw_idle()
 
