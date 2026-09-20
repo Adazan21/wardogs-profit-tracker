@@ -513,7 +513,7 @@ class App:
     def __init__(self, root):
         self.root = root
         root.title("")  # the header already shows WARDOGS / Profit Tracker; a caption-bar label was just noise
-        root.geometry("1820x1080")
+        _center_window(root, 1820, 1080)
         root.configure(bg=APP_BG)
         root.minsize(880, 560)
         root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -1157,6 +1157,19 @@ class App:
         if self._poll_after_id:
             self.root.after_cancel(self._poll_after_id)
         self.root.destroy()
+
+
+def _center_window(root, width, height):
+    """Tkinter's default placement for a plain `geometry("WxH")` (no
+    position) isn't actually screen-centered — it's left up to the window
+    manager, which on Windows tends to land oddly (e.g. hugging the bottom
+    of the screen once the window's tall enough). Computing the position
+    explicitly from the screen size is the only reliable way to open
+    centered."""
+    root.update_idletasks()
+    x = (root.winfo_screenwidth() - width) // 2
+    y = (root.winfo_screenheight() - height) // 2
+    root.geometry(f"{width}x{height}+{max(x, 0)}+{max(y, 0)}")
 
 
 def _set_window_icon(root):
