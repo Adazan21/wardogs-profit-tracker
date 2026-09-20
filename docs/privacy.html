@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy Policy — Wardogs Profit Tracker</title>
+<link rel="icon" type="image/png" href="assets/app_icon.png">
+<style>
+  :root {
+    --app-bg: #080a0f;
+    --card: #0d1117;
+    --card-alt: #11161d;
+    --text: #c9d1d9;
+    --muted: #8b949e;
+    --accent: #2dd4bf;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--app-bg);
+    color: var(--text);
+    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.65;
+  }
+  a { color: var(--accent); }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 56px 24px 80px; }
+  .back { display: inline-block; margin-bottom: 28px; color: var(--muted); font-size: 13.5px; }
+  h1 { font-size: 28px; margin: 0 0 6px; }
+  .updated { color: var(--muted); font-size: 13px; margin-bottom: 36px; }
+  h2 { font-size: 18px; margin: 40px 0 12px; color: var(--text); }
+  p, li { color: var(--muted); font-size: 15px; }
+  ul { padding-left: 20px; }
+  li { margin-bottom: 8px; }
+  code {
+    background: var(--card-alt);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
+    color: var(--text);
+  }
+  .box {
+    background: var(--card);
+    border-radius: 12px;
+    padding: 20px 22px;
+    margin: 24px 0;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <a class="back" href="index.html">← Back to Wardogs Profit Tracker</a>
+    <h1>Privacy Policy</h1>
+    <div class="updated">Last updated: September 2026</div>
+
+    <p>
+      Wardogs Profit Tracker is a free, open-source companion tool for the
+      game Wardogs. This page explains what data the app can send off your
+      machine, when, and who can see it. It is not affiliated with Valve,
+      Steam, or the developers of Wardogs.
+    </p>
+
+    <h2>Local by default</h2>
+    <p>
+      The app works fully offline. Match data (cash over time, map, faction,
+      role XP) is read from local files Wardogs and Steam already write on
+      your own machine — via Steam Rich Presence and local save files — and
+      saved to plain CSV files on your computer. Nothing leaves your machine
+      unless you explicitly opt in below.
+    </p>
+
+    <h2>What's sent if you opt in to sync</h2>
+    <p>
+      A one-time dialog (and a toggle in Settings, off by default) lets you
+      choose to share your matches. If enabled, this is uploaded after each
+      match:
+    </p>
+    <div class="box">
+      <ul>
+        <li>Your Steam ID (SteamID64) and current Steam display name</li>
+        <li>Cash-over-time curve, map, faction, match duration, life count</li>
+        <li>Role XP gains</li>
+      </ul>
+    </div>
+    <p>
+      That's the complete list — no passwords, no payment information, no
+      browsing data, no contact information beyond what's inherent in a
+      Steam ID/display name, nothing beyond what's described above and in
+      the in-app consent dialog.
+    </p>
+
+    <h2>Where it's stored, and who can see it</h2>
+    <p>
+      Uploaded data is stored in a Supabase (hosted PostgreSQL) database
+      controlled by the developer. The key built into the app can only
+      submit new data — it has no ability to read data back, enforced at
+      the database level (Row-Level Security), not just by the app's own
+      behavior. Only the developer, using a separate private key never
+      distributed with the app, can read uploaded match data.
+    </p>
+
+    <h2>The news feed</h2>
+    <p>
+      The in-app news feed is read-only for players — reading it discloses
+      nothing about you. Only the developer can publish to it.
+    </p>
+
+    <h2>Your choices</h2>
+    <ul>
+      <li>Sync is off by default and opt-in only.</li>
+      <li>Turn it off anytime from Settings — this stops all future uploads immediately.</li>
+      <li>To request deletion of match data already uploaded under your Steam ID, contact the developer (see below) and it will be removed.</li>
+    </ul>
+
+    <h2>Contact</h2>
+    <p>
+      Questions or a deletion request: open an issue on the
+      <a href="https://github.com/Adazan21/wardogs-profit-tracker/issues">GitHub repository</a>.
+    </p>
+  </div>
+</body>
+</html>
