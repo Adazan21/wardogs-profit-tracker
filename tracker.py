@@ -68,15 +68,34 @@ def _append_xp_log(session_file, gains):
 
 
 def auto_track(interval=2.0, stop_event=None, on_session_start=None, on_update=None,
-                on_session_end=None, on_identity=None, confirm_reads=2, miss_threshold=5):
+                on_session_end=None, on_identity=None, on_state=None,
+                confirm_reads=2, miss_threshold=5):
     """Watch Rich Presence and auto-detect match start/end.
 
-    `on_identity(steam_id, persona_name)` fires once, right after Steam init
-    succeeds, from this same thread — the only thread that ever touches the
-    Steamworks DLL. Callers needing that identity elsewhere (e.g. cloud
-    sync) should hand the plain strings off to their own thread from inside
-    that callback rather than opening a second concurrent Steamworks
-    session, which Steamworks doesn't support safely.
+    Only opens a Steamworks session — under Wardogs' own App ID, the only
+    way to read its Rich Presence at all — while the real Wardogs process
+    is actually running, confirmed independently via mapinfo.process_status()
+    (the OS process list), not inferred from Steam itself. Merely holding
+    that session open is what makes Steam report "Wardogs is running" to
+    friends, regardless of whether the real game is — so doing it
+    unconditionally (the old behavior) meant just having this tracker open
+    showed that status the whole time, even between matches or before
+    Wardogs had ever been launched. The session is torn down the instant
+    the real process disappears, including a crash or force-quit, not just
+    on a clean exit — which also means a match that ends because Wardogs
+    itself died now gets closed out properly instead of possibly sitting on
+    a stale "playing" reading forever.
+
+    `on_state(state)` fires whenever the coarse status changes, `state` one
+    of `"no_steam"` (Steam itself isn't running), `"waiting"` (Steam's up,
+    Wardogs isn't), or `"watching"` (actively reading Rich Presence) — for
+    a caller's status display. `on_identity(steam_id, persona_name)` fires
+    once, the first time a session is actually opened, from this same
+    thread — the only thread that ever touches the Steamworks DLL. Callers
+    needing that identity elsewhere (e.g. cloud sync) should hand the plain
+    strings off to their own thread from inside that callback rather than
+    opening a second concurrent Steamworks session, which Steamworks
+    doesn't support safely.
 
     A match "starts" once `game_state` reports `"playing"` for
     `confirm_reads` consecutive polls, and "ends" once it doesn't for
@@ -89,18 +108,22 @@ def auto_track(interval=2.0, stop_event=None, on_session_start=None, on_update=N
     to 5 (~10s), long enough to ride out that flicker but still end
     promptly on an actual match exit.
 
-    Runs until `stop_event` is set. Callbacks fire with just plain data
+    Runs until `stop_event` is set (or forever if omitted) — unlike before,
+    never raises SystemExit; a Steam/Wardogs outage just means it keeps
+    waiting and retrying on its own. Callbacks fire with just plain data
     (filenames/numbers), never touch UI directly, so this is safe to drive
-    from a background thread under a GUI. Raises SystemExit if Steam isn't
-    running or the local Steamworks init fails.
+    from a background thread under a GUI.
     """
-    rp = rp_module.RichPresence()
-    if not rp.init():
-        raise SystemExit("Could not initialize Steam Rich Presence. Is Steam running?")
-    print(f"Watching Rich Presence for Wardogs (AppID {rp.app_id}). Polling every {interval}s.")
+    rp = None
+    identity_sent = False
+    last_state = None
 
-    if on_identity:
-        on_identity(str(rp.steam_id), rp.persona_name())
+    def set_state(new_state):
+        nonlocal last_state
+        if new_state != last_state:
+            last_state = new_state
+            if on_state:
+                on_state(new_state)
 
     in_match = False
     filename = None
@@ -117,8 +140,44 @@ def auto_track(interval=2.0, stop_event=None, on_session_start=None, on_update=N
     known_spawn_dts = set()
     known_xp = rolexp.read_role_xp()  # baseline — a bad/empty read here just means we start watching from whatever the next good read is
 
+    def end_match(reason):
+        nonlocal f, writer, filename, in_match, playing_streak
+        f.close()
+        ended_file = filename
+        print(f"Match ended ({reason}). Session saved to {ended_file}")
+        f, writer, filename = None, None, None
+        in_match = False
+        playing_streak = 0
+        if on_session_end:
+            on_session_end(ended_file)
+
     try:
         while stop_event is None or not stop_event.is_set():
+            steam_up, wardogs_up = mapinfo.process_status()
+
+            if not wardogs_up:
+                if rp is not None:
+                    if in_match:
+                        end_match("Wardogs process exited")
+                    rp.shutdown()
+                    rp = None
+                set_state("waiting" if steam_up else "no_steam")
+                (stop_event.wait(interval) if stop_event is not None else time.sleep(interval))
+                continue
+
+            if rp is None:
+                rp = rp_module.RichPresence()
+                if not rp.init():
+                    rp = None
+                    set_state("no_steam")
+                    (stop_event.wait(interval) if stop_event is not None else time.sleep(interval))
+                    continue
+                print(f"Wardogs is running — watching Rich Presence (AppID {rp.app_id}). Polling every {interval}s.")
+                if on_identity and not identity_sent:
+                    on_identity(str(rp.steam_id), rp.persona_name())
+                    identity_sent = True
+
+            set_state("watching")
             data = rp.read()
             state = data.get("game_state")
 
@@ -177,26 +236,17 @@ def auto_track(interval=2.0, stop_event=None, on_session_start=None, on_update=N
                 else:
                     miss_streak += 1
                     if miss_streak >= miss_threshold:
-                        f.close()
-                        ended_file = filename
-                        print(f"Match ended (game_state={state!r}). Session saved to {ended_file}")
-                        f, writer, filename = None, None, None
-                        in_match = False
-                        playing_streak = 0
-                        if on_session_end:
-                            on_session_end(ended_file)
+                        end_match(f"game_state={state!r}")
 
-            if stop_event is not None:
-                stop_event.wait(interval)
-            else:
-                time.sleep(interval)
+            (stop_event.wait(interval) if stop_event is not None else time.sleep(interval))
     except KeyboardInterrupt:
         pass
     finally:
         if f:
             f.close()
             print(f"\nStopped mid-match. Session saved to {filename}")
-        rp.shutdown()
+        if rp is not None:
+            rp.shutdown()
 
 
 if __name__ == "__main__":

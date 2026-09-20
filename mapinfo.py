@@ -20,6 +20,7 @@ Two things this has to work around:
 
 import glob
 import os
+import subprocess
 import winreg
 from datetime import datetime, timezone
 
@@ -27,6 +28,39 @@ import msgpack
 
 APP_ID = "1867240"
 _BREADCRUMB_TS_FMT = "%Y-%m-%dT%H:%M:%S.%fZ"
+
+# The real client process (there's also a separate launcher process that
+# hands off to this one — checked for too, in case it stays resident) — see
+# process_status()'s docstring for what this is actually used for.
+WARDOGS_PROCESS_NAMES = ("WardogsClient-Win64-Shipping.exe", "WardogsLauncher-Shipping.exe")
+STEAM_PROCESS_NAME = "steam.exe"
+
+
+def process_status():
+    """(steam_running, wardogs_running), both bools, from one `tasklist`
+    snapshot. Fails open — (True, True) — if the process list can't be read
+    for any reason, since a diagnostic hiccup here must never be able to
+    stop the actual tracking feature from working.
+
+    This exists so richpresence.py/tracker.py can tell whether the *real*
+    Wardogs process is running independently of Steam's own Rich Presence
+    state — merely opening a Steamworks session under Wardogs' App ID
+    (unavoidable — it's the only way to read its Rich Presence at all) is
+    itself what makes Steam report "Wardogs is running" to friends, so that
+    can't be checked by asking Steam without causing the exact false status
+    this is meant to prevent. tracker.py only opens that session while this
+    reports the real process is actually up."""
+    try:
+        out = subprocess.run(
+            ["tasklist", "/FO", "CSV", "/NH"],
+            capture_output=True, text=True, timeout=3,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        ).stdout.lower()
+    except (OSError, subprocess.SubprocessError):
+        return True, True
+    steam_up = STEAM_PROCESS_NAME in out
+    wardogs_up = any(name.lower() in out for name in WARDOGS_PROCESS_NAMES)
+    return steam_up, wardogs_up
 
 
 def _steam_install_path():

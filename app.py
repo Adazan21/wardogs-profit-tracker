@@ -37,6 +37,7 @@ import richpresence
 import mapinfo
 import cloudsync
 import updater
+import autolaunch
 
 # ---------------------------------------------------------------- palette --
 APP_BG = "#080a0f"
@@ -368,7 +369,7 @@ class ConsentDialog(tk.Toplevel):
         "submit data — it cannot read anyone else's matches back, including "
         "your own once sent.\n\n"
         "This is entirely optional. The app works fully offline either way, "
-        "and you can change this anytime from the \"Sync\" button up top."
+        "and you can change this anytime from Settings (the gear icon up top)."
     )
 
     def __init__(self, parent, on_done):
@@ -404,6 +405,56 @@ class ConsentDialog(tk.Toplevel):
         self.grab_set()
 
 
+class SettingsDialog(tk.Toplevel):
+    """Reopenable anytime from the header's gear button: the sync toggle
+    (see ConsentDialog for the full first-run disclosure) plus general app
+    preferences."""
+
+    def __init__(self, parent, on_sync_changed):
+        super().__init__(parent)
+        self.title("Settings")
+        self.configure(bg=CARD)
+        self.resizable(False, False)
+        self.transient(parent)
+        self.on_sync_changed = on_sync_changed
+
+        pad = dict(padx=24)
+        tk.Label(self, text="Settings", bg=CARD, fg=TEXT,
+                 font=(FONT, 14, "bold")).pack(anchor="w", pady=(20, 14), **pad)
+
+        cb_kwargs = dict(bg=CARD, fg=TEXT, selectcolor=CARD_ALT, activebackground=CARD,
+                          activeforeground=TEXT, font=(FONT, 10), anchor="w", highlightthickness=0)
+
+        self.sync_var = tk.BooleanVar(value=cloudsync.load_consent()["enabled"])
+        tk.Checkbutton(self, text="Share my matches with the developer", variable=self.sync_var,
+                        command=self._on_sync_toggle, **cb_kwargs).pack(anchor="w", fill="x", **pad)
+        tk.Label(self, bg=CARD, fg=MUTED, font=(FONT, 8), justify="left",
+                 text="Uploads your cash curve, map, faction, and role XP, tagged with\n"
+                      "your Steam ID/name. Only the developer can read it back."
+                 ).pack(anchor="w", pady=(2, 16), **pad)
+
+        if autolaunch.supported():
+            self.autolaunch_var = tk.BooleanVar(value=autolaunch.is_enabled())
+            tk.Checkbutton(self, text="Launch automatically when Windows starts",
+                            variable=self.autolaunch_var, command=self._on_autolaunch_toggle,
+                            **cb_kwargs).pack(anchor="w", fill="x", pady=(0, 20), **pad)
+
+        tk.Button(self, text="Close", command=self.destroy, bg=CARD_ALT, fg=MUTED,
+                  relief="flat", bd=0, padx=16, pady=8, font=(FONT, 9, "bold"),
+                  cursor="hand2").pack(anchor="e", pady=(0, 20), padx=24)
+
+        self.grab_set()
+
+    def _on_sync_toggle(self):
+        enabled = self.sync_var.get()
+        cloudsync.set_consent(enabled)
+        if self.on_sync_changed:
+            self.on_sync_changed(enabled)
+
+    def _on_autolaunch_toggle(self):
+        autolaunch.set_enabled(self.autolaunch_var.get())
+
+
 # --------------------------------------------------------------------- app --
 class App:
     def __init__(self, root):
@@ -416,7 +467,7 @@ class App:
 
         self.watch_thread = None
         self.watch_stop_event = None
-        self.steam_ok = True
+        self.watch_state = "waiting"
         self.live_session = None
         self.latest_status = {}
         self.selected_session = None
@@ -433,7 +484,7 @@ class App:
         self._slider_full_df = None
         self._slider_csv_path = None
         self._user_scrubbing = False
-        self._cloud_synced_once = False
+        self._steam_identity = None
 
         self._build_ui()
         self.refresh_sessions(select_latest=True)
@@ -457,12 +508,12 @@ class App:
         self.status_pill = StatusPill(header)
         self.status_pill.pack(side="right", padx=20)
 
-        self.sync_button = tk.Button(
-            header, text="Sync: Off", command=self._open_sync_settings,
+        self.settings_button = tk.Button(
+            header, text="⚙ Settings", command=self._open_settings,
             bg=CARD, fg=MUTED, relief="flat", bd=0, cursor="hand2",
             font=(FONT, 8, "bold"), activebackground=CARD, activeforeground=TEXT,
         )
-        self.sync_button.pack(side="right", padx=(0, 4))
+        self.settings_button.pack(side="right", padx=(0, 4))
 
         body = tk.Frame(self.root, bg=APP_BG)
         body.pack(side="top", fill="both", expand=True)
@@ -791,9 +842,10 @@ class App:
     # ---------- tracking ----------
     def _sync_watcher(self):
         """Start the auto-detect watcher as soon as it can run — it just
-        always runs, no manual start/stop. Retries on its own every poll if
-        Steam isn't running yet (tracker.auto_track raises SystemExit,
-        thread just exits, this notices and starts a fresh one)."""
+        always runs, no manual start/stop. tracker.auto_track() now runs
+        (and retries on its own, forever) until stopped, so this is mostly
+        just a safety net in case the thread ever dies from a genuine
+        unhandled exception."""
         running = self.watch_thread is not None and self.watch_thread.is_alive()
         if not running:
             self._start_watcher()
@@ -815,46 +867,53 @@ class App:
             self._sessions_dirty = True
 
         def run():
-            try:
-                tracker.auto_track(
-                    2.0, stop_event=self.watch_stop_event,
-                    on_session_start=on_session_start, on_update=on_update,
-                    on_session_end=on_session_end, on_identity=self._on_steam_identity,
-                )
-            except SystemExit:
-                self.steam_ok = False  # _sync_watcher retries next poll regardless
+            tracker.auto_track(
+                2.0, stop_event=self.watch_stop_event,
+                on_session_start=on_session_start, on_update=on_update,
+                on_session_end=on_session_end, on_identity=self._on_steam_identity,
+                on_state=self._on_watch_state,
+            )
 
         self.watch_thread = threading.Thread(target=run, daemon=True)
         self.watch_thread.start()
-        self.steam_ok = True  # optimistic; run() corrects it within one poll if init fails
+
+    def _on_watch_state(self, state):
+        """Fired from the watcher thread whenever its coarse status changes
+        — see tracker.auto_track's docstring for the possible values.
+        Just stashes it; _poll() picks it up on the main thread, same
+        pattern as live_session/latest_status below."""
+        self.watch_state = state
 
     # ---------- cloud sync (opt-in) ----------
     def _init_cloud_sync(self):
         consent = cloudsync.load_consent()
-        self._update_sync_button(consent["enabled"])
         if not consent["decided"]:
             # Give the window a moment to actually appear first, rather than
             # a modal dialog popping up before the user's even seen the app.
             self.root.after(500, lambda: ConsentDialog(self.root, self._on_consent_changed))
 
-    def _open_sync_settings(self):
-        ConsentDialog(self.root, self._on_consent_changed)
+    def _open_settings(self):
+        SettingsDialog(self.root, self._on_consent_changed)
 
     def _on_consent_changed(self, enabled):
-        self._update_sync_button(enabled)
-
-    def _update_sync_button(self, enabled):
-        self.sync_button.configure(text=("Sync: On" if enabled else "Sync: Off"))
+        if enabled:
+            self._trigger_sync()
 
     def _on_steam_identity(self, steam_id, persona_name):
         """Fired once by tracker.auto_track's watcher thread, right after
         Steam init succeeds — see that function's docstring for why identity
         is only ever read there and handed off as plain strings, rather than
         this opening a second concurrent Steamworks session."""
-        if self._cloud_synced_once:
-            return
-        self._cloud_synced_once = True
-        threading.Thread(target=cloudsync.sync_now, args=(steam_id, persona_name), daemon=True).start()
+        self._steam_identity = (steam_id, persona_name)
+        self._trigger_sync()
+
+    def _trigger_sync(self):
+        """Safe to call more than once (e.g. once when identity resolves,
+        again if the user enables sync afterwards, whichever order those
+        happen in) — cloudsync.sync_now() tracks what's already synced
+        locally, so a redundant call just no-ops quickly."""
+        if self._steam_identity:
+            threading.Thread(target=cloudsync.sync_now, args=self._steam_identity, daemon=True).start()
 
     # ---------- auto-update ----------
     def _init_auto_update(self):
@@ -893,7 +952,7 @@ class App:
                 self.render_graph(self.live_session, animate=False)
             if self.live_session in self.cards:
                 self.cards[self.live_session].refresh_summary()
-        elif not self.steam_ok:
+        elif self.watch_state == "no_steam":
             self.status_pill.set_idle("Steam not running")
         else:
             self.status_pill.set_watching()
@@ -914,6 +973,9 @@ class App:
 
 
 def main():
+    if not autolaunch.acquire_single_instance_lock():
+        return  # another copy is already running — its window was just brought to front instead
+    autolaunch.apply_default_if_unset()
     root = tk.Tk()
     App(root)
     root.mainloop()
