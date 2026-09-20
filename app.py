@@ -457,46 +457,6 @@ class SettingsDialog(tk.Toplevel):
         autolaunch.set_enabled(self.autolaunch_var.get())
 
 
-class NewsDialog(tk.Toplevel):
-    """Read-only dev news/announcements feed — see news.py. Fetched fresh
-    each time this opens (cheap, and should always show what's actually
-    current) via the shipped anon key, which can only read this one table
-    and nothing else — see supabase_schema.sql."""
-
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.title("News")
-        self.configure(bg=CARD)
-        self.geometry("480x560")
-        self.minsize(360, 320)
-        self.transient(parent)
-
-        tk.Label(self, text="News & Updates", bg=CARD, fg=TEXT,
-                 font=(FONT, 14, "bold")).pack(anchor="w", padx=24, pady=(20, 10))
-
-        body = ScrollableList(self, CARD)
-        body.pack(fill="both", expand=True, padx=16, pady=(0, 20))
-
-        posts = news.fetch_news()
-        if not posts:
-            tk.Label(body.inner, text="No news yet — check back later.", bg=CARD, fg=MUTED,
-                     font=(FONT, 9, "italic")).pack(anchor="w", padx=8, pady=10)
-        for post in posts:
-            self._add_post(body.inner, post)
-
-    def _add_post(self, parent, post):
-        card = tk.Frame(parent, bg=CARD_ALT)
-        card.pack(fill="x", padx=8, pady=(0, 10))
-        header = tk.Frame(card, bg=CARD_ALT)
-        header.pack(fill="x", padx=14, pady=(12, 2))
-        tk.Label(header, text=post.get("title") or "(untitled)", bg=CARD_ALT, fg=TEXT,
-                 font=(FONT, 11, "bold"), wraplength=300, justify="left").pack(side="left")
-        when = (post.get("created_at") or "")[:10]
-        tk.Label(header, text=when, bg=CARD_ALT, fg=MUTED, font=(FONT, 8)).pack(side="right")
-        tk.Label(card, text=post.get("content") or "", bg=CARD_ALT, fg=MUTED,
-                 font=(FONT, 9), justify="left", wraplength=400).pack(anchor="w", padx=14, pady=(0, 12))
-
-
 # --------------------------------------------------------------------- app --
 class App:
     def __init__(self, root):
@@ -558,7 +518,7 @@ class App:
         self.settings_button.pack(side="right", padx=(0, 4))
 
         self.news_button = tk.Button(
-            header, text="News", command=lambda: NewsDialog(self.root),
+            header, text="📰 News", command=self.show_news,
             bg=CARD, fg=MUTED, relief="flat", bd=0, cursor="hand2",
             font=(FONT, 8, "bold"), activebackground=CARD, activeforeground=TEXT,
         )
@@ -586,7 +546,15 @@ class App:
         main_col = tk.Frame(body, bg=APP_BG)
         main_col.pack(side="left", fill="both", expand=True)
 
-        stats_row = tk.Frame(main_col, bg=APP_BG)
+        # Everything below is the normal "looking at a match" view, grouped
+        # under one frame so News (a separate main function, not a tab
+        # alongside Profit/$-per-min/XP — those are all just different
+        # views of the same match) can swap the whole thing out in place
+        # rather than opening a separate window.
+        self.match_view = tk.Frame(main_col, bg=APP_BG)
+        self.match_view.pack(fill="both", expand=True)
+
+        stats_row = tk.Frame(self.match_view, bg=APP_BG)
         stats_row.pack(fill="x", padx=18, pady=18)
         self.tile_current = StatTile(stats_row, "Current Cash")
         self.tile_peak = StatTile(stats_row, "Peak Cash")
@@ -595,7 +563,7 @@ class App:
         for tile in (self.tile_current, self.tile_peak, self.tile_net, self.tile_rate):
             tile.pack(side="left", padx=(0, 12))
 
-        tabs_row = tk.Frame(main_col, bg=APP_BG)
+        tabs_row = tk.Frame(self.match_view, bg=APP_BG)
         tabs_row.pack(fill="x", padx=18, pady=(0, 10))
         self.view_mode = "profit"
         self.tab_profit = TabButton(tabs_row, "Profit", lambda: self.set_view_mode("profit"))
@@ -606,7 +574,7 @@ class App:
         self.tab_xp.pack(side="left")
         self.tab_profit.set_active(True)
 
-        chart_card = tk.Frame(main_col, bg=CARD, highlightthickness=1, highlightbackground=BORDER)
+        chart_card = tk.Frame(self.match_view, bg=CARD, highlightthickness=1, highlightbackground=BORDER)
         chart_card.pack(fill="both", expand=True, padx=18, pady=(0, 18))
 
         self.fig, self.axes = plt.subplots(2, 1, figsize=(8, 6), sharex=True, facecolor=CARD)
@@ -628,7 +596,53 @@ class App:
 
         self.xp_view = tk.Frame(chart_card, bg=CARD)
 
+        # ----- news panel (swapped in over match_view, not a popup) -----
+        self.news_panel = tk.Frame(main_col, bg=APP_BG)
+        self._build_news_panel(self.news_panel)
+
         self._show_placeholder("Select a match on the left — new ones appear here automatically")
+
+    def _build_news_panel(self, parent):
+        header = tk.Frame(parent, bg=APP_BG)
+        header.pack(fill="x", padx=18, pady=(18, 10))
+        tk.Label(header, text="News & Updates", bg=APP_BG, fg=TEXT,
+                 font=(FONT, 14, "bold")).pack(side="left")
+        tk.Button(
+            header, text="← Back", command=self.show_match_view, bg=CARD, fg=MUTED,
+            activebackground=CARD, activeforeground=TEXT, relief="flat", bd=0,
+            cursor="hand2", font=(FONT, 9, "bold"), padx=12, pady=6,
+        ).pack(side="right")
+
+        self.news_list_container = ScrollableList(parent, APP_BG)
+        self.news_list_container.pack(fill="both", expand=True, padx=18, pady=(0, 18))
+
+    def _render_news(self):
+        self.news_list_container.clear()
+        posts = news.fetch_news()
+        if not posts:
+            tk.Label(self.news_list_container.inner, text="No news yet — check back later.",
+                      bg=APP_BG, fg=MUTED, font=(FONT, 9, "italic")).pack(anchor="w", pady=10)
+            return
+        for post in posts:
+            card = tk.Frame(self.news_list_container.inner, bg=CARD)
+            card.pack(fill="x", pady=(0, 10))
+            post_header = tk.Frame(card, bg=CARD)
+            post_header.pack(fill="x", padx=16, pady=(14, 2))
+            tk.Label(post_header, text=post.get("title") or "(untitled)", bg=CARD, fg=TEXT,
+                      font=(FONT, 12, "bold"), wraplength=440, justify="left").pack(side="left")
+            when = (post.get("created_at") or "")[:10]
+            tk.Label(post_header, text=when, bg=CARD, fg=MUTED, font=(FONT, 8)).pack(side="right")
+            tk.Label(card, text=post.get("content") or "", bg=CARD, fg=MUTED,
+                      font=(FONT, 9), justify="left", wraplength=520).pack(anchor="w", padx=16, pady=(0, 14))
+
+    def show_news(self):
+        self.match_view.pack_forget()
+        self.news_panel.pack(fill="both", expand=True)
+        self._render_news()
+
+    def show_match_view(self):
+        self.news_panel.pack_forget()
+        self.match_view.pack(fill="both", expand=True)
 
     def _clear_fig_text(self):
         for txt in list(self.fig.texts):
@@ -760,6 +774,7 @@ class App:
             self.on_select_session(sessions[0])
 
     def on_select_session(self, session_path):
+        self.show_match_view()
         if self.selected_session and self.selected_session in self.cards:
             self.cards[self.selected_session].set_selected(False)
         self.selected_session = session_path
