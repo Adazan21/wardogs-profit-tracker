@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wardogs Profit Tracker</title>
+<meta name="description" content="Track your Wardogs match profit/loss in real time — no screenshots, no OCR, just the numbers the game already reports.">
+<link rel="icon" type="image/png" href="assets/app_icon.png">
+<style>
+  :root {
+    --app-bg: #080a0f;
+    --card: #0d1117;
+    --card-alt: #11161d;
+    --text: #c9d1d9;
+    --muted: #8b949e;
+    --accent: #2dd4bf;
+    --good: #3fb950;
+    --bad: #f85149;
+    --gold: #ffd60a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--app-bg);
+    color: var(--text);
+    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.55;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
+
+  header.hero {
+    padding: 72px 0 56px;
+    text-align: center;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    margin-bottom: 28px;
+  }
+  .brand img { width: 44px; height: 44px; border-radius: 10px; }
+  .brand-text { text-align: left; }
+  .brand-text .name { font-size: 15px; font-weight: 700; letter-spacing: 0.06em; color: var(--text); }
+  .brand-text .sub { font-size: 11px; font-weight: 700; color: var(--muted); }
+
+  h1 {
+    font-size: clamp(28px, 5vw, 44px);
+    margin: 0 0 18px;
+    font-weight: 800;
+    color: var(--text);
+  }
+  h1 .accent { color: var(--accent); }
+  .tagline {
+    max-width: 620px;
+    margin: 0 auto 36px;
+    color: var(--muted);
+    font-size: 16.5px;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 28px;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 15px;
+    cursor: pointer;
+    border: none;
+  }
+  .btn-primary { background: var(--accent); color: #001018; }
+  .btn-primary:hover { background: #4de0cb; text-decoration: none; }
+  .btn-secondary {
+    background: var(--card-alt);
+    color: var(--text);
+    margin-left: 10px;
+  }
+  .btn-secondary:hover { background: #171d27; text-decoration: none; }
+
+  .trust {
+    margin-top: 18px;
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+
+  .screenshot-wrap {
+    margin: 8px auto 64px;
+    max-width: 960px;
+  }
+  .screenshot-wrap img {
+    width: 100%;
+    display: block;
+    border-radius: 14px;
+    border: 1px solid #21262d;
+  }
+
+  section.features {
+    padding: 10px 0 64px;
+  }
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 18px;
+  }
+  .feature-card {
+    background: var(--card);
+    border-radius: 14px;
+    padding: 22px 20px;
+  }
+  .feature-card .icon { font-size: 22px; margin-bottom: 12px; }
+  .feature-card h3 {
+    margin: 0 0 8px;
+    font-size: 15px;
+    color: var(--text);
+  }
+  .feature-card p {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--muted);
+  }
+
+  section.how {
+    padding: 10px 0 64px;
+  }
+  section.how h2 { font-size: 22px; margin-bottom: 18px; }
+  .how-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 24px;
+  }
+  .how-grid p { color: var(--muted); font-size: 14px; margin: 0; }
+  .how-grid h4 { margin: 0 0 8px; color: var(--text); font-size: 14.5px; }
+
+  footer {
+    border-top: 1px solid #171b22;
+    padding: 32px 0 48px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  footer a { color: var(--muted); }
+  footer a:hover { color: var(--text); }
+  footer .sep { margin: 0 10px; opacity: 0.5; }
+
+  code {
+    background: var(--card-alt);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
+  }
+</style>
+</head>
+<body>
+
+  <header class="hero">
+    <div class="wrap">
+      <div class="brand">
+        <img src="assets/app_icon.png" alt="">
+        <div class="brand-text">
+          <div class="name">WARDOGS</div>
+          <div class="sub">Profit Tracker</div>
+        </div>
+      </div>
+
+      <h1>Know exactly what every<br><span class="accent">Wardogs</span> match is costing you</h1>
+      <p class="tagline">
+        Live cash curve, earn rate, and role XP — read straight from the game's
+        own Steam Rich Presence data. No screenshots, no OCR, no manual
+        anything. Just launch Wardogs and play.
+      </p>
+
+      <a class="btn btn-primary" href="https://github.com/Adazan21/wardogs-profit-tracker/releases/latest/download/profitdog.exe">
+        ⬇ Download for Windows
+      </a>
+      <a class="btn btn-secondary" href="https://github.com/Adazan21/wardogs-profit-tracker">
+        View source on GitHub
+      </a>
+
+      <div class="trust">
+        Free &amp; open source (GPL-3.0) · No login, no account, no Discord bot ·
+        Runs fully offline unless you opt in to sharing matches
+      </div>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="screenshot-wrap">
+      <img src="assets/screenshot.png" alt="Wardogs Profit Tracker showing a live cash-over-time graph and match history">
+    </div>
+  </div>
+
+  <section class="features">
+    <div class="wrap">
+      <div class="feature-grid">
+        <div class="feature-card">
+          <div class="icon">📈</div>
+          <h3>Auto-detects matches</h3>
+          <p>No "start tracking" button — it watches for a match to begin and just starts logging.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">💰</div>
+          <h3>Live profit &amp; earn rate</h3>
+          <p>Watch your cash curve update in real time, plus a rolling $/min rate so you can see what's actually working.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">🎖</div>
+          <h3>Role XP tracking</h3>
+          <p>Every XP gain across all seven roles, logged the instant it happens — even between matches.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">📰</div>
+          <h3>News &amp; updates</h3>
+          <p>Optional in-app feed for tips and announcements — read-only, nothing you have to sign up for.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="how">
+    <div class="wrap">
+      <h2>How it actually works</h2>
+      <div class="how-grid">
+        <div>
+          <h4>Reads what Wardogs already reports to Steam</h4>
+          <p>
+            Wardogs publishes your match state to Steam Rich Presence — the same
+            mechanism that shows "+$150 Profit" next to a friend's name in your
+            friends list. This just reads that for yourself, polled every 2
+            seconds. The exact value the game reports — no misreads possible.
+          </p>
+        </div>
+        <div>
+          <h4>Fully local by default</h4>
+          <p>
+            Everything is saved to plain CSV files on your own machine. There's
+            an optional opt-in to share match summaries so other players' stats
+            are visible too — off by default, and you're told exactly what's
+            sent before you ever turn it on.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <a href="https://github.com/Adazan21/wardogs-profit-tracker">GitHub</a>
+    <span class="sep">·</span>
+    <a href="https://github.com/Adazan21/wardogs-profit-tracker/releases">Releases</a>
+    <span class="sep">·</span>
+    <a href="https://github.com/Adazan21/wardogs-profit-tracker/blob/master/LICENSE">GPL-3.0 License</a>
+    <div style="margin-top:14px;">Not affiliated with Wardogs or its developers.</div>
+  </footer>
+
+</body>
+</html>
