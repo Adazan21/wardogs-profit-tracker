@@ -44,6 +44,7 @@ def _appdata_dir():
 
 CONSENT_PATH = os.path.join(_appdata_dir(), "sync_consent.json")
 STATE_PATH = os.path.join(_appdata_dir(), "sync_state.json")
+IDENTITY_PATH = os.path.join(_appdata_dir(), "steam_identity.json")
 
 
 # ---------------------------------------------------------------- consent --
@@ -61,6 +62,28 @@ def load_consent():
 def set_consent(enabled):
     with open(CONSENT_PATH, "w") as f:
         json.dump({"decided": True, "enabled": bool(enabled)}, f)
+
+
+# --------------------------------------------------------------- identity --
+def load_cached_identity():
+    """(steam_id, persona_name) resolved on some earlier launch, or
+    (None, None) if Wardogs has never actually been running while this app
+    was open. Without this cache, every fresh launch would need Wardogs
+    open at least once before it could sync anything at all — even a
+    backlog of already-finished matches sitting on disk from a prior run,
+    since identity by itself only ever lived in that earlier process's
+    memory (see app.py's on_identity wiring)."""
+    try:
+        with open(IDENTITY_PATH) as f:
+            data = json.load(f)
+        return data.get("steam_id"), data.get("persona_name")
+    except (OSError, ValueError):
+        return None, None
+
+
+def save_cached_identity(steam_id, persona_name):
+    with open(IDENTITY_PATH, "w") as f:
+        json.dump({"steam_id": steam_id, "persona_name": persona_name}, f)
 
 
 # ------------------------------------------------------------------ state --

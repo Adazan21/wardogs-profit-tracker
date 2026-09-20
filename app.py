@@ -898,6 +898,15 @@ class App:
             # a modal dialog popping up before the user's even seen the app.
             self.root.after(500, lambda: ConsentDialog(self.root, self._on_consent_changed))
 
+        # Identity resolved on some earlier launch (cached to disk the first
+        # time Wardogs was actually seen running — see _on_steam_identity)
+        # lets this launch sync any backlog immediately, without needing
+        # Wardogs open again just to re-confirm who's uploading.
+        cached_steam_id, cached_persona_name = cloudsync.load_cached_identity()
+        if cached_steam_id:
+            self._steam_identity = (cached_steam_id, cached_persona_name)
+            self._trigger_sync()
+
     def _open_settings(self):
         SettingsDialog(self.root, self._on_consent_changed)
 
@@ -911,6 +920,7 @@ class App:
         is only ever read there and handed off as plain strings, rather than
         this opening a second concurrent Steamworks session."""
         self._steam_identity = (steam_id, persona_name)
+        cloudsync.save_cached_identity(steam_id, persona_name)
         self._trigger_sync()
 
     def _trigger_sync(self):
