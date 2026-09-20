@@ -1163,12 +1163,26 @@ def _center_window(root, width, height):
     """Tkinter's default placement for a plain `geometry("WxH")` (no
     position) isn't actually screen-centered — it's left up to the window
     manager, which on Windows tends to land oddly (e.g. hugging the bottom
-    of the screen once the window's tall enough). Computing the position
-    explicitly from the screen size is the only reliable way to open
-    centered."""
+    of the screen once the window's tall enough). Centers against the
+    Windows *work area* (SPI_GETWORKAREA) — the usable desktop excluding
+    the taskbar — rather than the full screen resolution; centering
+    against the full screen leaves the window looking low, since the
+    taskbar eats into the bottom of the space the window actually has to
+    sit in."""
     root.update_idletasks()
-    x = (root.winfo_screenwidth() - width) // 2
-    y = (root.winfo_screenheight() - height) // 2
+    try:
+        class RECT(ctypes.Structure):
+            _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                        ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+        SPI_GETWORKAREA = 0x0030
+        rect = RECT()
+        if not ctypes.windll.user32.SystemParametersInfoW(SPI_GETWORKAREA, 0, ctypes.byref(rect), 0):
+            raise OSError
+        x = rect.left + (rect.right - rect.left - width) // 2
+        y = rect.top + (rect.bottom - rect.top - height) // 2
+    except Exception:
+        x = (root.winfo_screenwidth() - width) // 2
+        y = (root.winfo_screenheight() - height) // 2
     root.geometry(f"{width}x{height}+{max(x, 0)}+{max(y, 0)}")
 
 
