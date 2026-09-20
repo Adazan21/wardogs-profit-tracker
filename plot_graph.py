@@ -258,24 +258,37 @@ def _attach_hover(fig, ax1, ax2, df):
     vline2 = ax2.axvline(x[0], color=MUTED, linewidth=0.8, linestyle="--", alpha=0, zorder=4)
     dot1 = ax1.scatter([x[0]], [cash[0]], s=45, color=CASH_LINE, edgecolor=BG, linewidth=1.2, zorder=6, alpha=0)
     dot2 = ax2.scatter([x[0]], [0], s=40, color=TEXT, edgecolor=BG, linewidth=1.2, zorder=6, alpha=0)
-    tooltip = ax1.annotate(
-        "", xy=(0, 0), xytext=(12, 12), textcoords="offset points",
+
+    # Two tooltips, one per axes — an artist parented to a hidden axes never
+    # renders regardless of its own visibility flag, which only ever
+    # mattered once app.py started letting either panel be shown on its own
+    # (the Profit/$-per-min tabs). Picking by ax1.get_visible() rather than
+    # always using tooltip1 keeps this identical to the old single-tooltip
+    # behavior for every existing caller (devview.py, standalone use, and
+    # app.py's default dual-panel view all always have ax1 visible), and
+    # only switches to ax2's copy in the one new case where ax1 is hidden.
+    tooltip_kwargs = dict(
+        xytext=(12, 12), textcoords="offset points",
         bbox=dict(boxstyle="round,pad=0.4", facecolor="#161b22", edgecolor=GRID),
         color=TEXT, fontsize=9, family="monospace", zorder=7,
     )
-    tooltip.set_visible(False)
+    tooltip1 = ax1.annotate("", xy=(0, 0), **tooltip_kwargs)
+    tooltip2 = ax2.annotate("", xy=(0, 0), **tooltip_kwargs)
+    tooltip1.set_visible(False)
+    tooltip2.set_visible(False)
 
     def hide():
         vline1.set_alpha(0)
         vline2.set_alpha(0)
         dot1.set_alpha(0)
         dot2.set_alpha(0)
-        tooltip.set_visible(False)
+        tooltip1.set_visible(False)
+        tooltip2.set_visible(False)
         fig.canvas.draw_idle()
 
     def on_move(event):
         if event.inaxes not in (ax1, ax2) or event.xdata is None:
-            if tooltip.get_visible():
+            if tooltip1.get_visible() or tooltip2.get_visible():
                 hide()
             return
         idx = int(np.argmin(np.abs(x - event.xdata)))
@@ -294,9 +307,12 @@ def _attach_hover(fig, ax1, ax2, df):
             dot2.set_alpha(1)
             rate_txt = f"{r:+,.0f}/min"
 
-        tooltip.xy = (x[idx], cash[idx])
-        tooltip.set_text(f"t = {x[idx]:.1f}m\ncash  {_fmt_money(cash[idx])}\nrate  {rate_txt}")
-        tooltip.set_visible(True)
+        text = f"t = {x[idx]:.1f}m\ncash  {_fmt_money(cash[idx])}\nrate  {rate_txt}"
+        active, other = (tooltip1, tooltip2) if ax1.get_visible() else (tooltip2, tooltip1)
+        active.xy = (x[idx], cash[idx]) if active is tooltip1 else (x[idx], 0 if np.isnan(r) else r)
+        active.set_text(text)
+        active.set_visible(True)
+        other.set_visible(False)
         fig.canvas.draw_idle()
 
     fig._hover_cids = [

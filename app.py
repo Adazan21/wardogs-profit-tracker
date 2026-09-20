@@ -28,6 +28,7 @@ from PIL import Image, ImageTk
 import matplotlib
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
+import matplotlib.transforms as mtransforms
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 import tracker
@@ -550,8 +551,10 @@ class App:
         tabs_row.pack(fill="x", padx=18, pady=(0, 10))
         self.view_mode = "profit"
         self.tab_profit = TabButton(tabs_row, "Profit", lambda: self.set_view_mode("profit"))
+        self.tab_rate = TabButton(tabs_row, "$/min", lambda: self.set_view_mode("rate"))
         self.tab_xp = TabButton(tabs_row, "XP", lambda: self.set_view_mode("xp"))
         self.tab_profit.pack(side="left", padx=(0, 8))
+        self.tab_rate.pack(side="left", padx=(0, 8))
         self.tab_xp.pack(side="left")
         self.tab_profit.set_active(True)
 
@@ -602,10 +605,11 @@ class App:
         self.tile_net.render("—", MUTED)
         self.tile_rate.render("—", MUTED)
 
-    # ---------- profit / XP tabs ----------
+    # ---------- profit / rate / XP tabs ----------
     def set_view_mode(self, mode):
         self.view_mode = mode
         self.tab_profit.set_active(mode == "profit")
+        self.tab_rate.set_active(mode == "rate")
         self.tab_xp.set_active(mode == "xp")
         if mode == "xp":
             self.canvas.get_tk_widget().pack_forget()
@@ -616,6 +620,35 @@ class App:
             self.xp_view.pack_forget()
             self.time_slider.pack(side="bottom", fill="x", padx=16, pady=(0, 14))
             self.canvas.get_tk_widget().pack(fill="both", expand=True, padx=16, pady=(16, 4))
+            self._apply_panel_split()
+            self.canvas.draw_idle()
+
+    def _apply_panel_split(self):
+        """Profit/rate tabs each show one panel full-height rather than the
+        usual stacked pair — plot_graph.draw() always populates both axes
+        of the same figure regardless of tab; this only controls which is
+        visible and how much space it gets. Reasserted after every draw
+        (see _draw_frame), not just on tab switch, since a full (non-quick)
+        redraw re-runs plot_graph.draw()'s own tight_layout() under the
+        normal equal split, and resets sharex's default of only the bottom
+        panel showing x-tick labels — both of which would otherwise
+        silently undo this the next time a match is selected.
+
+        Expanding the visible axes to the union of both axes' current
+        (already correctly tight_layout'd, equally-split) positions, rather
+        than trying to get tight_layout itself to redo the split under a
+        near-zero ratio for the hidden one, sidesteps a real edge case:
+        tight_layout's margin/tick-label spacing reservations don't scale
+        down cleanly at extreme ratios, which clipped the visible chart's
+        own axis off the bottom of the figure entirely."""
+        ax1, ax2 = self.axes
+        show_cash = self.view_mode != "rate"
+        full_pos = mtransforms.Bbox.union([ax1.get_position(), ax2.get_position()])
+        ax1.set_visible(show_cash)
+        ax2.set_visible(not show_cash)
+        ax1.tick_params(labelbottom=show_cash)
+        ax1.set_xlabel("Minutes into match" if show_cash else "")
+        (ax1 if show_cash else ax2).set_position(full_pos)
 
     def _render_xp_view(self):
         totals = rolexp.read_role_xp()
@@ -762,6 +795,7 @@ class App:
         for ax in self.axes:
             ax.axis("on")
         plot_graph.draw(self.fig, self.axes, df, display_name(csv_path), quick=quick, full_df=full_df)
+        self._apply_panel_split()
         self.canvas.draw_idle()
 
         current = df["cash"].iloc[-1]
