@@ -35,6 +35,8 @@ import plot_graph
 import rolexp
 import richpresence
 import mapinfo
+import cloudsync
+import updater
 
 # ---------------------------------------------------------------- palette --
 APP_BG = "#080a0f"
@@ -350,6 +352,58 @@ class ScrollableList(tk.Frame):
             child.destroy()
 
 
+class ConsentDialog(tk.Toplevel):
+    """First-run (and reopenable-from-Settings) opt-in for uploading match
+    data to the developer's private database — see cloudsync.py. Shown once
+    before any sync ever happens; declining leaves the app exactly as it
+    was before this feature existed."""
+
+    BODY_TEXT = (
+        "This app can optionally upload your match data to a private database "
+        "the developer (Addison) uses to see stats across players.\n\n"
+        "What's sent: your cash-over-time curve, map, faction, match duration, "
+        "life count, and role XP gained — plus your Steam ID and display name, "
+        "so matches can be tagged to you.\n\n"
+        "Who can see it: only the developer. The key this app uses can only "
+        "submit data — it cannot read anyone else's matches back, including "
+        "your own once sent.\n\n"
+        "This is entirely optional. The app works fully offline either way, "
+        "and you can change this anytime from the \"Sync\" button up top."
+    )
+
+    def __init__(self, parent, on_done):
+        super().__init__(parent)
+        self.title("Match data sync")
+        self.configure(bg=CARD)
+        self.resizable(False, False)
+        self.transient(parent)
+        self.on_done = on_done
+
+        pad = dict(padx=24)
+        tk.Label(self, text="Share your matches?", bg=CARD, fg=TEXT,
+                 font=(FONT, 14, "bold")).pack(anchor="w", pady=(20, 6), **pad)
+        tk.Label(self, text=self.BODY_TEXT, bg=CARD, fg=MUTED, font=(FONT, 9),
+                 justify="left", wraplength=420).pack(anchor="w", **pad)
+
+        btn_row = tk.Frame(self, bg=CARD)
+        btn_row.pack(fill="x", pady=(18, 20), **pad)
+
+        def choose(enabled):
+            cloudsync.set_consent(enabled)
+            self.destroy()
+            self.on_done(enabled)
+
+        tk.Button(btn_row, text="Enable sync", command=lambda: choose(True),
+                  bg=ACCENT, fg="#001018", relief="flat", bd=0, padx=16, pady=8,
+                  font=(FONT, 9, "bold"), cursor="hand2").pack(side="left")
+        tk.Button(btn_row, text="No thanks", command=lambda: choose(False),
+                  bg=CARD_ALT, fg=MUTED, relief="flat", bd=0, padx=16, pady=8,
+                  font=(FONT, 9, "bold"), cursor="hand2").pack(side="left", padx=(10, 0))
+
+        self.protocol("WM_DELETE_WINDOW", lambda: choose(False))
+        self.grab_set()
+
+
 # --------------------------------------------------------------------- app --
 class App:
     def __init__(self, root):
@@ -379,12 +433,15 @@ class App:
         self._slider_full_df = None
         self._slider_csv_path = None
         self._user_scrubbing = False
+        self._cloud_synced_once = False
 
         self._build_ui()
         self.refresh_sessions(select_latest=True)
         self._sync_watcher()
         self._poll()
         self._pulse_tick()
+        self._init_cloud_sync()
+        self._init_auto_update()
 
     # ---------- UI ----------
     def _build_ui(self):
@@ -399,6 +456,13 @@ class App:
 
         self.status_pill = StatusPill(header)
         self.status_pill.pack(side="right", padx=20)
+
+        self.sync_button = tk.Button(
+            header, text="Sync: Off", command=self._open_sync_settings,
+            bg=CARD, fg=MUTED, relief="flat", bd=0, cursor="hand2",
+            font=(FONT, 8, "bold"), activebackground=CARD, activeforeground=TEXT,
+        )
+        self.sync_button.pack(side="right", padx=(0, 4))
 
         body = tk.Frame(self.root, bg=APP_BG)
         body.pack(side="top", fill="both", expand=True)
@@ -755,7 +819,7 @@ class App:
                 tracker.auto_track(
                     2.0, stop_event=self.watch_stop_event,
                     on_session_start=on_session_start, on_update=on_update,
-                    on_session_end=on_session_end,
+                    on_session_end=on_session_end, on_identity=self._on_steam_identity,
                 )
             except SystemExit:
                 self.steam_ok = False  # _sync_watcher retries next poll regardless
@@ -763,6 +827,45 @@ class App:
         self.watch_thread = threading.Thread(target=run, daemon=True)
         self.watch_thread.start()
         self.steam_ok = True  # optimistic; run() corrects it within one poll if init fails
+
+    # ---------- cloud sync (opt-in) ----------
+    def _init_cloud_sync(self):
+        consent = cloudsync.load_consent()
+        self._update_sync_button(consent["enabled"])
+        if not consent["decided"]:
+            # Give the window a moment to actually appear first, rather than
+            # a modal dialog popping up before the user's even seen the app.
+            self.root.after(500, lambda: ConsentDialog(self.root, self._on_consent_changed))
+
+    def _open_sync_settings(self):
+        ConsentDialog(self.root, self._on_consent_changed)
+
+    def _on_consent_changed(self, enabled):
+        self._update_sync_button(enabled)
+
+    def _update_sync_button(self, enabled):
+        self.sync_button.configure(text=("Sync: On" if enabled else "Sync: Off"))
+
+    def _on_steam_identity(self, steam_id, persona_name):
+        """Fired once by tracker.auto_track's watcher thread, right after
+        Steam init succeeds — see that function's docstring for why identity
+        is only ever read there and handed off as plain strings, rather than
+        this opening a second concurrent Steamworks session."""
+        if self._cloud_synced_once:
+            return
+        self._cloud_synced_once = True
+        threading.Thread(target=cloudsync.sync_now, args=(steam_id, persona_name), daemon=True).start()
+
+    # ---------- auto-update ----------
+    def _init_auto_update(self):
+        threading.Thread(target=self._run_update_check, daemon=True).start()
+
+    def _run_update_check(self):
+        def announce(tag):
+            # Runs on the update-check thread — hop to the main thread before
+            # touching any Tkinter widget.
+            self.root.after(0, lambda: self.status_pill.set_active(f"Updating to {tag} — restarting…"))
+        updater.run_auto_update_check(on_update_found=announce)
 
     # ---------- polling loop ----------
     def _poll(self):

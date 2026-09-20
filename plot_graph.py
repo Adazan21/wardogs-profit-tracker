@@ -43,8 +43,11 @@ plt.rcParams.update({
 })
 
 
-def load(csv_path):
-    df = pd.read_csv(csv_path)
+def load_df(df):
+    """Adds the derived columns draw() needs (minutes_elapsed, rate_per_min)
+    to an already-loaded DataFrame with at least seconds_elapsed/cash — split
+    out from load() so devview.py can plot rows pulled from Supabase instead
+    of a local session CSV, through the exact same drawing code."""
     if df.empty:
         return df
     df["minutes_elapsed"] = df["seconds_elapsed"] / 60
@@ -53,6 +56,10 @@ def load(csv_path):
     df["time_delta_min"] = df["minutes_elapsed"].diff()
     df["rate_per_min"] = (df["cash_delta"] / df["time_delta_min"]).rolling(3, min_periods=1).mean()
     return df
+
+
+def load(csv_path):
+    return load_df(pd.read_csv(csv_path))
 
 
 def _map_faction_tag(df):

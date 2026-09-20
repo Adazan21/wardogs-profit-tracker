@@ -113,6 +113,8 @@ class RichPresence:
         dll.SteamAPI_ISteamFriends_GetFriendRichPresence.argtypes = [ctypes.c_void_p, ctypes.c_uint64, ctypes.c_char_p]
         dll.SteamAPI_ISteamFriends_RequestFriendRichPresence.restype = None
         dll.SteamAPI_ISteamFriends_RequestFriendRichPresence.argtypes = [ctypes.c_void_p, ctypes.c_uint64]
+        dll.SteamAPI_ISteamFriends_GetPersonaName.restype = ctypes.c_char_p
+        dll.SteamAPI_ISteamFriends_GetPersonaName.argtypes = [ctypes.c_void_p]
         dll.SteamAPI_RunCallbacks.restype = None
         dll.SteamAPI_Shutdown.restype = None
 
@@ -142,6 +144,13 @@ class RichPresence:
             val = dll.SteamAPI_ISteamFriends_GetFriendRichPresence(self.friends, self.steam_id, key)
             data[key.decode()] = val.decode() if val else None
         return data
+
+    def persona_name(self):
+        """The logged-in user's current Steam display name, or None."""
+        if not self.dll or not self.friends:
+            return None
+        raw = self.dll.SteamAPI_ISteamFriends_GetPersonaName(self.friends)
+        return raw.decode() if raw else None
 
     def shutdown(self):
         if self.dll:

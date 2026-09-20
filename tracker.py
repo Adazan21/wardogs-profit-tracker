@@ -68,8 +68,15 @@ def _append_xp_log(session_file, gains):
 
 
 def auto_track(interval=2.0, stop_event=None, on_session_start=None, on_update=None,
-                on_session_end=None, confirm_reads=2, miss_threshold=5):
+                on_session_end=None, on_identity=None, confirm_reads=2, miss_threshold=5):
     """Watch Rich Presence and auto-detect match start/end.
+
+    `on_identity(steam_id, persona_name)` fires once, right after Steam init
+    succeeds, from this same thread — the only thread that ever touches the
+    Steamworks DLL. Callers needing that identity elsewhere (e.g. cloud
+    sync) should hand the plain strings off to their own thread from inside
+    that callback rather than opening a second concurrent Steamworks
+    session, which Steamworks doesn't support safely.
 
     A match "starts" once `game_state` reports `"playing"` for
     `confirm_reads` consecutive polls, and "ends" once it doesn't for
@@ -91,6 +98,9 @@ def auto_track(interval=2.0, stop_event=None, on_session_start=None, on_update=N
     if not rp.init():
         raise SystemExit("Could not initialize Steam Rich Presence. Is Steam running?")
     print(f"Watching Rich Presence for Wardogs (AppID {rp.app_id}). Polling every {interval}s.")
+
+    if on_identity:
+        on_identity(str(rp.steam_id), rp.persona_name())
 
     in_match = False
     filename = None

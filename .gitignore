@@ -8,3 +8,4 @@ role_xp_log.csv
 .claude/
 *.png
 !icons/*.png
+devview_secrets.json

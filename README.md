@@ -134,6 +134,51 @@ Shows:
 - Hover anywhere on either panel for a crosshair + tooltip with the exact
   time, cash, and earn rate at that point.
 
+## Optional: sharing matches with the developer
+
+The app can optionally upload your match data (cash curve, map, faction,
+duration, life count, role XP, plus your Steam ID/display name) to a
+private database the developer uses to see stats across players. It's
+**off by default** — you'll see a one-time dialog on first launch asking to
+opt in, and a "Sync" button in the header lets you turn it on/off anytime.
+Nobody but the developer can read this data back, including other players:
+the key the app uses can only submit rows, never read them (enforced
+server-side, see `supabase_schema.sql`). Declining, or never touching the
+Sync button, leaves the app exactly as it's always worked — fully local,
+nothing sent anywhere.
+
+Setting up your own backend for this (only needed if you're maintaining a
+fork, not for normal use):
+1. Create a free project at [supabase.com](https://supabase.com).
+2. Run `supabase_schema.sql` in its SQL Editor (creates the tables + the
+   insert-only security policies).
+3. Copy the `anon` key from Project Settings → API into `cloud_config.py`.
+4. To view uploaded matches yourself: copy `devview_secrets.json.example`
+   to `devview_secrets.json`, fill in the `service_role` key (**never**
+   commit this file or put it in `cloud_config.py`), then `python devview.py`.
+
+## Releasing an update
+
+The standalone `.exe` checks GitHub Releases on every launch and
+self-updates if a newer one exists (`updater.py`) — running from source
+(`python app.py`) never does this, since there's nothing to replace; just
+`git pull`. To ship a new version:
+
+1. Bump `APP_VERSION` in `version.py` (e.g. `"1.1.0"`).
+2. Rebuild: `python -m PyInstaller profitdog.spec`.
+3. Tag and publish a GitHub Release whose tag matches (a `v` prefix is
+   fine — `v1.1.0`), with `dist/profitdog.exe` attached as a release
+   asset named exactly `profitdog.exe`:
+   ```
+   git tag v1.1.0
+   git push origin v1.1.0
+   gh release create v1.1.0 dist/profitdog.exe --title v1.1.0 --notes "..."
+   ```
+Players on an older version pick it up next time they launch the app —
+downloaded in the background, swapped in, and relaunched automatically
+(a few seconds' pause with a "Updating…" status), no action needed on
+their end.
+
 ## Notes / known limitations
 
 - Needs Steam (and Wardogs) actually running — this reads local Steam
