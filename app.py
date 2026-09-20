@@ -1085,6 +1085,16 @@ class App:
         self.root.destroy()
 
 
+def _set_window_icon(root):
+    """Without this, Tkinter shows the generic Tk feather icon in the
+    title bar/taskbar — one of the fastest tells that a window is "just a
+    Python script" rather than a real app."""
+    try:
+        root.iconbitmap(default=os.path.join(_icons_dir(), "app_icon.ico"))
+    except tk.TclError:
+        pass  # e.g. icon file missing — cosmetic only, never worth failing startup over
+
+
 def main():
     if "--watch" in sys.argv:
         autolaunch.run_watcher()  # headless — waits for Wardogs, then launches the GUI; never returns
@@ -1093,6 +1103,7 @@ def main():
         return  # another copy is already running — its window was just brought to front instead
     autolaunch.apply_default_if_unset()
     root = tk.Tk()
+    _set_window_icon(root)
     App(root)
     root.mainloop()
 

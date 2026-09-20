@@ -403,6 +403,10 @@ class DevView:
 
 def main():
     root = tk.Tk()
+    try:
+        root.iconbitmap(default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons", "app_icon.ico"))
+    except tk.TclError:
+        pass
     DevView(root)
     root.mainloop()
 
