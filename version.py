@@ -7,4 +7,4 @@ that's what auto-update compares against to decide whether a newer version
 exists.
 """
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
