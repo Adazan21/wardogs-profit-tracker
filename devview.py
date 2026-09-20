@@ -55,6 +55,14 @@ def _get(url, key, path, params=None):
     return resp.json()
 
 
+def _match_label(m, with_player=False):
+    started = (m.get("started_at") or "")[:16].replace("T", " ")
+    profit = m.get("final_profit")
+    profit_txt = f"${profit:,}" if profit is not None else "?"
+    prefix = f'{m.get("persona_name") or m["steam_id"]}  ' if with_player else ""
+    return f'{prefix}{started}  {m.get("map") or "?"}  {profit_txt}'
+
+
 class DevView:
     def __init__(self, root):
         self.root = root
@@ -64,22 +72,40 @@ class DevView:
         self.url, self.key = _load_secrets()
         self._players = []
         self._matches = []
+        self._all_matches = []
 
-        left = tk.Frame(root, width=280)
+        left = tk.Frame(root, width=300)
         left.pack(side="left", fill="y")
         left.pack_propagate(False)
 
-        tk.Label(left, text="PLAYERS", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=10, pady=(10, 4))
-        self.player_list = tk.Listbox(left, exportselection=False)
+        tabs = tk.Frame(left)
+        tabs.pack(fill="x", padx=10, pady=(10, 4))
+        self.tab_player_btn = tk.Button(tabs, text="By Player", command=lambda: self.set_tab("player"))
+        self.tab_all_btn = tk.Button(tabs, text="All Matches", command=lambda: self.set_tab("all"))
+        self.tab_player_btn.pack(side="left", expand=True, fill="x")
+        self.tab_all_btn.pack(side="left", expand=True, fill="x")
+
+        tk.Button(left, text="Refresh", command=self.refresh).pack(fill="x", padx=10, pady=(0, 8))
+
+        # ----- "By Player" tab: players list -> that player's matches -----
+        self.player_tab = tk.Frame(left)
+        tk.Label(self.player_tab, text="PLAYERS", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=10, pady=(6, 4))
+        self.player_list = tk.Listbox(self.player_tab, exportselection=False)
         self.player_list.pack(fill="both", expand=True, padx=10)
         self.player_list.bind("<<ListboxSelect>>", self._on_player_select)
 
-        tk.Label(left, text="MATCHES", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=10, pady=(16, 4))
-        self.match_list = tk.Listbox(left, exportselection=False)
+        tk.Label(self.player_tab, text="MATCHES", font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=10, pady=(16, 4))
+        self.match_list = tk.Listbox(self.player_tab, exportselection=False)
         self.match_list.pack(fill="both", expand=True, padx=10)
         self.match_list.bind("<<ListboxSelect>>", self._on_match_select)
 
-        tk.Button(left, text="Refresh", command=self.load_players).pack(fill="x", padx=10, pady=10)
+        # ----- "All Matches" tab: every match, every player, most recent first -----
+        self.all_tab = tk.Frame(left)
+        tk.Label(self.all_tab, text="ALL MATCHES (most recent first)",
+                 font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=10, pady=(6, 4))
+        self.all_match_list = tk.Listbox(self.all_tab, exportselection=False)
+        self.all_match_list.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        self.all_match_list.bind("<<ListboxSelect>>", self._on_all_match_select)
 
         right = tk.Frame(root)
         right.pack(side="left", fill="both", expand=True)
@@ -87,7 +113,24 @@ class DevView:
         self.canvas = FigureCanvasTkAgg(self.fig, master=right)
         self.canvas.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
 
+        self.set_tab("all")
+        self.refresh()
+
+    def set_tab(self, tab):
+        self.player_tab.pack_forget()
+        self.all_tab.pack_forget()
+        if tab == "player":
+            self.player_tab.pack(fill="both", expand=True)
+            self.tab_player_btn.configure(relief="sunken")
+            self.tab_all_btn.configure(relief="raised")
+        else:
+            self.all_tab.pack(fill="both", expand=True)
+            self.tab_all_btn.configure(relief="sunken")
+            self.tab_player_btn.configure(relief="raised")
+
+    def refresh(self):
         self.load_players()
+        self.load_all_matches()
 
     def load_players(self):
         rows = _get(self.url, self.key, "matches", params={"select": "steam_id,persona_name"})
@@ -98,6 +141,15 @@ class DevView:
         self.player_list.delete(0, "end")
         for _steam_id, name in self._players:
             self.player_list.insert("end", name)
+
+    def load_all_matches(self):
+        self._all_matches = _get(
+            self.url, self.key, "matches",
+            params={"order": "started_at.desc", "select": "*"},
+        )
+        self.all_match_list.delete(0, "end")
+        for m in self._all_matches:
+            self.all_match_list.insert("end", _match_label(m, with_player=True))
 
     def _on_player_select(self, _event):
         sel = self.player_list.curselection()
@@ -110,16 +162,19 @@ class DevView:
         )
         self.match_list.delete(0, "end")
         for m in self._matches:
-            started = (m.get("started_at") or "")[:16].replace("T", " ")
-            profit = m.get("final_profit")
-            profit_txt = f"${profit:,}" if profit is not None else "?"
-            self.match_list.insert("end", f'{started}  {m.get("map") or "?"}  {profit_txt}')
+            self.match_list.insert("end", _match_label(m))
 
     def _on_match_select(self, _event):
         sel = self.match_list.curselection()
-        if not sel:
-            return
-        match = self._matches[sel[0]]
+        if sel:
+            self._show_match(self._matches[sel[0]])
+
+    def _on_all_match_select(self, _event):
+        sel = self.all_match_list.curselection()
+        if sel:
+            self._show_match(self._all_matches[sel[0]])
+
+    def _show_match(self, match):
         ticks = _get(
             self.url, self.key, "match_ticks",
             params={"match_id": f'eq.{match["id"]}', "order": "timestamp.asc", "select": "*"},
