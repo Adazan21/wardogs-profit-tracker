@@ -214,3 +214,9 @@ their end.
   `previous_last_elapsed + (real timestamp gap in seconds)`, keep the
   `timestamp` column as-is (and the first file's `map`/`faction`, since
   a real split keeps the same match), then delete the second file.
+
+## License
+
+GPL-3.0 — see [LICENSE](LICENSE). Free to use, modify, and redistribute;
+anything you distribute based on this code must stay open source under
+the same license.
