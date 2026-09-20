@@ -361,7 +361,7 @@ class ConsentDialog(tk.Toplevel):
 
     BODY_TEXT = (
         "This app can optionally upload your match data to a private database "
-        "the developer (Addison) uses to see stats across players.\n\n"
+        "the developer uses to see stats across players.\n\n"
         "What's sent: your cash-over-time curve, map, faction, match duration, "
         "life count, and role XP gained — plus your Steam ID and display name, "
         "so matches can be tagged to you.\n\n"
@@ -865,6 +865,12 @@ class App:
         def on_session_end(_filename):
             self.live_session = None
             self._sessions_dirty = True
+            # The one-shot sync at identity-resolution time (see
+            # _on_steam_identity) typically fires right as Wardogs launches
+            # — before this match's own CSV exists — so without also
+            # syncing here, the match that's actually in progress would
+            # never get picked up until some *later* app run.
+            self._trigger_sync()
 
         def run():
             tracker.auto_track(
