@@ -144,10 +144,20 @@ class DevView:
         tabs.pack(fill="x", padx=14, pady=(0, 10))
         self.tab_player_btn = TabButton(tabs, "By Player", lambda: self.set_tab("player"))
         self.tab_all_btn = TabButton(tabs, "All Matches", lambda: self.set_tab("all"))
-        self.tab_news_btn = TabButton(tabs, "News", lambda: self.set_tab("news"))
         self.tab_player_btn.pack(side="left", expand=True, fill="x", padx=(0, 4))
-        self.tab_all_btn.pack(side="left", expand=True, fill="x", padx=(0, 4))
-        self.tab_news_btn.pack(side="left", expand=True, fill="x")
+        self.tab_all_btn.pack(side="left", expand=True, fill="x")
+
+        # News is its own main function, not a peer of the By Player/All
+        # Matches pair above (which both just filter the same match list) —
+        # a separate, full-width button rather than a third cramped tab,
+        # and it takes over the roomy right-hand panel instead of trying to
+        # fit a post form into this narrow sidebar.
+        self.news_button = tk.Button(
+            left, text="📰 News", command=self.show_news, bg="#132530", fg=ACCENT,
+            activebackground="#132530", activeforeground=ACCENT,
+            relief="flat", bd=0, cursor="hand2", font=(FONT, 9, "bold"), pady=8,
+        )
+        self.news_button.pack(fill="x", padx=14, pady=(0, 14))
 
         # ----- "By Player" tab: players list -> that player's matches -----
         self.player_tab = tk.Frame(left, bg=CARD)
@@ -168,62 +178,97 @@ class DevView:
         self.all_match_list.pack(fill="both", expand=True, padx=14)
         self.all_match_list.bind("<<ListboxSelect>>", self._on_all_match_select)
 
-        # ----- "News" tab: what players see read-only in the app, written
-        # only here (service_role key) — the app itself has no write path.
-        self.news_tab = tk.Frame(left, bg=CARD)
-        _section_label(self.news_tab, "POSTED (most recent first)").pack(anchor="w", padx=14, pady=(0, 4))
-        self.news_list = _styled_listbox(self.news_tab)
-        self.news_list.configure(height=6)
-        self.news_list.pack(fill="x", padx=14)
-        self.news_list.bind("<<ListboxSelect>>", self._on_news_select)
-
-        tk.Button(
-            self.news_tab, text="Delete selected", command=self._delete_selected_news,
-            bg=CARD_ALT, fg=MUTED, activebackground=CARD_ALT, activeforeground=TEXT,
-            relief="flat", bd=0, cursor="hand2", font=(FONT, 8, "bold"), pady=6,
-        ).pack(fill="x", padx=14, pady=(6, 16))
-
-        _section_label(self.news_tab, "NEW POST").pack(anchor="w", padx=14, pady=(0, 4))
-        self.news_title_entry = tk.Entry(
-            self.news_tab, bg=CARD_ALT, fg=TEXT, insertbackground=TEXT,
-            relief="flat", font=(FONT, 9),
-        )
-        self.news_title_entry.pack(fill="x", padx=14, ipady=6)
-        tk.Label(self.news_tab, text="Title", bg=CARD, fg=MUTED, font=(FONT, 7)).pack(anchor="w", padx=14, pady=(2, 8))
-
-        self.news_content_text = tk.Text(
-            self.news_tab, bg=CARD_ALT, fg=TEXT, insertbackground=TEXT,
-            relief="flat", font=(FONT, 9), height=8, wrap="word",
-        )
-        self.news_content_text.pack(fill="both", expand=True, padx=14)
-        tk.Label(self.news_tab, text="Content (max 2000 characters)", bg=CARD, fg=MUTED,
-                 font=(FONT, 7)).pack(anchor="w", padx=14, pady=(2, 8))
-
-        self.news_status_label = tk.Label(self.news_tab, text="", bg=CARD, fg=MUTED, font=(FONT, 8))
-        self.news_status_label.pack(anchor="w", padx=14)
-
-        tk.Button(
-            self.news_tab, text="Post", command=self._submit_news, bg="#132530", fg=ACCENT,
-            activebackground="#132530", activeforeground=ACCENT,
-            relief="flat", bd=0, cursor="hand2", font=(FONT, 9, "bold"), pady=8,
-        ).pack(fill="x", padx=14, pady=(6, 14))
-
         tk.Button(
             left, text="Refresh", command=self.refresh, bg=CARD_ALT, fg=MUTED,
             activebackground=CARD_ALT, activeforeground=TEXT, relief="flat", bd=0,
             cursor="hand2", font=(FONT, 8, "bold"), pady=8,
-        ).pack(fill="x", padx=14, pady=14)
+        ).pack(fill="x", padx=14, pady=(0, 14))
 
+        # ----- right-hand panel: the chart, or (toggled via the News
+        # button above) the news list + post form, using the full width
+        # rather than squeezing a post form into the narrow sidebar. -----
         right = tk.Frame(root, bg=APP_BG)
         right.pack(side="left", fill="both", expand=True)
+
+        self.chart_panel = tk.Frame(right, bg=APP_BG)
         self.fig, self.axes = plt.subplots(2, 1, figsize=(8, 6), sharex=True, facecolor=CARD)
-        self.canvas = FigureCanvasTkAgg(self.fig, master=right)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.chart_panel)
         self.canvas.get_tk_widget().configure(bg=CARD, highlightthickness=0)
         self.canvas.get_tk_widget().pack(fill="both", expand=True, padx=14, pady=14)
+
+        self.news_panel = tk.Frame(right, bg=APP_BG)
+        self._build_news_panel(self.news_panel)
+
+        self.chart_panel.pack(fill="both", expand=True)
 
         self._show_placeholder("Pick a match on the left")
         self.set_tab("all")
         self.refresh()
+
+    def _build_news_panel(self, parent):
+        # What players see read-only in the app, written only here
+        # (service_role key) — the app itself has no write path.
+        tk.Label(parent, text="News & Updates", bg=APP_BG, fg=TEXT,
+                 font=(FONT, 14, "bold")).pack(anchor="w", padx=18, pady=(18, 14))
+
+        columns = tk.Frame(parent, bg=APP_BG)
+        columns.pack(fill="both", expand=True, padx=18, pady=(0, 18))
+
+        posted_col = tk.Frame(columns, bg=CARD, width=320)
+        posted_col.pack(side="left", fill="y", padx=(0, 14))
+        posted_col.pack_propagate(False)
+        _section_label(posted_col, "POSTED (most recent first)").pack(anchor="w", padx=14, pady=(14, 4))
+        self.news_list = _styled_listbox(posted_col)
+        self.news_list.pack(fill="both", expand=True, padx=14)
+        self.news_list.bind("<<ListboxSelect>>", self._on_news_select)
+        tk.Button(
+            posted_col, text="Delete selected", command=self._delete_selected_news,
+            bg=CARD_ALT, fg=MUTED, activebackground=CARD_ALT, activeforeground=TEXT,
+            relief="flat", bd=0, cursor="hand2", font=(FONT, 8, "bold"), pady=6,
+        ).pack(fill="x", padx=14, pady=14)
+
+        form_col = tk.Frame(columns, bg=CARD)
+        form_col.pack(side="left", fill="both", expand=True)
+        _section_label(form_col, "NEW POST").pack(anchor="w", padx=18, pady=(14, 4))
+        self.news_title_entry = tk.Entry(
+            form_col, bg=CARD_ALT, fg=TEXT, insertbackground=TEXT,
+            relief="flat", font=(FONT, 10),
+        )
+        self.news_title_entry.pack(fill="x", padx=18, ipady=8)
+        tk.Label(form_col, text="Title", bg=CARD, fg=MUTED, font=(FONT, 7)).pack(anchor="w", padx=18, pady=(2, 10))
+
+        self.news_content_text = tk.Text(
+            form_col, bg=CARD_ALT, fg=TEXT, insertbackground=TEXT,
+            relief="flat", font=(FONT, 10), wrap="word",
+        )
+        self.news_content_text.pack(fill="both", expand=True, padx=18)
+        tk.Label(form_col, text="Content (max 2000 characters)", bg=CARD, fg=MUTED,
+                 font=(FONT, 7)).pack(anchor="w", padx=18, pady=(2, 10))
+
+        self.news_status_label = tk.Label(form_col, text="", bg=CARD, fg=MUTED, font=(FONT, 9))
+        self.news_status_label.pack(anchor="w", padx=18)
+
+        btn_row = tk.Frame(form_col, bg=CARD)
+        btn_row.pack(fill="x", padx=18, pady=(8, 18))
+        tk.Button(
+            btn_row, text="Post", command=self._submit_news, bg="#132530", fg=ACCENT,
+            activebackground="#132530", activeforeground=ACCENT,
+            relief="flat", bd=0, cursor="hand2", font=(FONT, 9, "bold"), padx=20, pady=8,
+        ).pack(side="left")
+        tk.Button(
+            btn_row, text="Back to chart", command=self.show_chart, bg=CARD_ALT, fg=MUTED,
+            activebackground=CARD_ALT, activeforeground=TEXT,
+            relief="flat", bd=0, cursor="hand2", font=(FONT, 9, "bold"), padx=20, pady=8,
+        ).pack(side="left", padx=(10, 0))
+
+    def show_news(self):
+        self.chart_panel.pack_forget()
+        self.news_panel.pack(fill="both", expand=True)
+        self.load_news()
+
+    def show_chart(self):
+        self.news_panel.pack_forget()
+        self.chart_panel.pack(fill="both", expand=True)
 
     def _show_placeholder(self, message):
         for ax in self.axes:
@@ -236,12 +281,9 @@ class DevView:
     def set_tab(self, tab):
         self.player_tab.pack_forget()
         self.all_tab.pack_forget()
-        self.news_tab.pack_forget()
         self.tab_player_btn.set_active(tab == "player")
         self.tab_all_btn.set_active(tab == "all")
-        self.tab_news_btn.set_active(tab == "news")
-        frame = {"player": self.player_tab, "all": self.all_tab, "news": self.news_tab}[tab]
-        frame.pack(fill="both", expand=True)
+        (self.player_tab if tab == "player" else self.all_tab).pack(fill="both", expand=True)
 
     def refresh(self):
         self.load_players()
@@ -344,6 +386,7 @@ class DevView:
         self.load_news()
 
     def _show_match(self, match):
+        self.show_chart()
         ticks = _get(
             self.url, self.key, "match_ticks",
             params={"match_id": f'eq.{match["id"]}', "order": "timestamp.asc", "select": "*"},
