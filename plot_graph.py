@@ -164,17 +164,18 @@ def draw(fig, axes, df, csv_path, quick=False, full_df=None):
     tag = _map_faction_tag(range_df)
     if tag:
         main_title += f"  ·  {tag}"
-    fig.suptitle(main_title, color=TEXT, fontsize=13, fontweight="bold")
 
-    # A second, smaller title on ax1 rather than text overlaid on the plot
-    # itself (the old approach — wherever it was anchored, it ended up
-    # sitting on top of the line, a life-marker label, or the peak
-    # annotation often enough to matter, since cash starts at 0 and
-    # commonly ends up near either edge of its own range). Stacked below
-    # the figure's own suptitle rather than sharing its row (loc="right"
-    # alongside it collided for anything but a short filename) — both
-    # titles live in the margin above the axes, so neither can ever cover
-    # the data below.
+    # The stats readout used to be text overlaid directly on the plot,
+    # which ended up sitting on top of the line, a life-marker label, or
+    # the peak annotation often enough to matter (cash starts at 0 and
+    # commonly ends up near either edge of its own range). A second title
+    # row fixes that — but as a *second line of this same axes title*
+    # (loc="right" alongside the main title collided for anything but a
+    # short filename, and a separate fig.suptitle() turned out to share
+    # fig.texts with app.py's placeholder-message cleanup, which wiped it
+    # every redraw and broke hover). One Title artist, two lines, is the
+    # option that's actually safe here — still always in the margin above
+    # the axes, so it can't cover the data either way.
     current = cash.iloc[-1]
     net = cash.iloc[-1] - cash.iloc[0]
     minutes = max(x.iloc[-1], 0.01)
@@ -183,7 +184,7 @@ def draw(fig, axes, df, csv_path, quick=False, full_df=None):
         f"{_fmt_money(current)}   net {'+' if net >= 0 else ''}{net:,.0f}   "
         f"{'+' if avg_rate >= 0 else ''}{avg_rate:,.0f}/min"
     )
-    ax1.set_title(stats_line, color=MUTED, fontsize=9, family="monospace", pad=10)
+    ax1.set_title(f"{main_title}\n{stats_line}", color=TEXT, fontsize=12, fontweight="bold", pad=14)
 
     # --- Bottom panel: earn rate ---
     (line2,) = ax2.plot(x, rate, color=TEXT, linewidth=1, alpha=0.5)
