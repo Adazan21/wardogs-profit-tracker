@@ -94,9 +94,15 @@ def _style_axis(ax):
         ax.spines[spine].set_color(GRID)
 
 
-def draw(fig, axes, df, csv_path, quick=False, full_df=None):
+def draw(fig, axes, df, csv_path, quick=False, full_df=None, title_prefix="Wardogs cash tracker — "):
     """Draws the chart for `df` (which may be a prefix of the full match, for
     the reveal animation / scrub slider).
+
+    `title_prefix` defaults to restating the app's own name, appropriate
+    when this is the only identifying text on screen (standalone CLI use,
+    devview.py). app.py passes "" instead — its own header already
+    establishes that context, so repeating it in the chart title too would
+    just be noise.
 
     `quick=True` skips the expensive parts that don't need to happen every
     animation frame — axis chrome (grid/spines/labels/title/formatters),
@@ -160,7 +166,7 @@ def draw(fig, axes, df, csv_path, quick=False, full_df=None):
     )
     fig._data_artists += [peak_dot, peak_ann]
 
-    main_title = f"Wardogs cash tracker — {csv_path}"
+    main_title = f"{title_prefix}{csv_path}"
     tag = _map_faction_tag(range_df)
     if tag:
         main_title += f"  ·  {tag}"

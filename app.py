@@ -42,10 +42,13 @@ import autolaunch
 import news
 
 # ---------------------------------------------------------------- palette --
+# Panels are told apart purely by these background shades — no outlined
+# borders anywhere in the chrome (the one exception: a colored border as a
+# meaningful selection/active indicator, e.g. the current tab or match
+# card, never as plain decoration).
 APP_BG = "#080a0f"
 CARD = plot_graph.BG          # matches the chart's own background exactly
 CARD_ALT = "#11161d"
-BORDER = "#21262d"
 TEXT = plot_graph.TEXT
 MUTED = plot_graph.MUTED
 ACCENT = plot_graph.CASH_LINE
@@ -70,6 +73,7 @@ ROLE_ICON_FILES = {
 ROLE_DISPLAY_NAMES = {"Infantry": "Assault"}
 ROLE_ICON_SIZE = 28
 _role_icon_cache = {}
+_ui_icon_cache = {}
 
 
 def _icons_dir():
@@ -98,6 +102,37 @@ def role_icon(role):
         else:
             _role_icon_cache[role] = None
     return _role_icon_cache[role]
+
+
+_app_icon_cache = {}
+
+
+def app_icon_image(size):
+    """The app's own icon (icons/app_icon.png), resized for in-UI use —
+    e.g. next to the header wordmark — separate from _set_window_icon's
+    .ico use for the title bar/taskbar."""
+    if size not in _app_icon_cache:
+        path = os.path.join(_icons_dir(), "app_icon.png")
+        if os.path.exists(path):
+            img = Image.open(path).convert("RGBA").resize((size, size), Image.LANCZOS)
+            _app_icon_cache[size] = ImageTk.PhotoImage(img)
+        else:
+            _app_icon_cache[size] = None
+    return _app_icon_cache[size]
+
+
+def ui_icon(name):
+    """PhotoImage for a small header-button glyph (icons/icon_<name>.png —
+    generated to match MUTED exactly, at the size they're drawn, since
+    system emoji (the previous ⚙/📰) render as full-color glyphs that
+    clash with the rest of the palette rather than blending into it."""
+    if name not in _ui_icon_cache:
+        path = os.path.join(_icons_dir(), f"icon_{name}.png")
+        if os.path.exists(path):
+            _ui_icon_cache[name] = ImageTk.PhotoImage(Image.open(path).convert("RGBA"))
+        else:
+            _ui_icon_cache[name] = None
+    return _ui_icon_cache[name]
 
 
 def list_sessions():
@@ -212,7 +247,7 @@ class StatTile(tk.Canvas):
 
     def render(self, value, accent=TEXT):
         self.delete("all")
-        draw_round_rect(self, 0, 0, self.w, self.h, 14, fill=CARD_ALT, outline=BORDER, width=1)
+        draw_round_rect(self, 0, 0, self.w, self.h, 14, fill=CARD_ALT, outline="")
         self.create_text(18, 20, anchor="w", text=self.label.upper(), fill=MUTED, font=(FONT, 8, "bold"))
         self.create_text(18, self.h - 24, anchor="w", text=value, fill=accent, font=(FONT, 18, "bold"))
 
@@ -223,14 +258,14 @@ class StatusPill(tk.Canvas):
         self.w, self.h = width, height
         self.set_idle()
 
-    def _render(self, text, dot, fg, fill, border):
+    def _render(self, text, dot, fg, fill, border=""):
         self.delete("all")
         draw_round_rect(self, 0, 0, self.w, self.h, self.h / 2, fill=fill, outline=border, width=1)
         self.create_oval(14, self.h / 2 - 4, 22, self.h / 2 + 4, fill=dot, outline="")
         self.create_text(30, self.h / 2, anchor="w", text=text, fill=fg, font=(FONT, 9, "bold"))
 
     def set_idle(self, text="Not tracking"):
-        self._render(text, MUTED, MUTED, CARD_ALT, BORDER)
+        self._render(text, MUTED, MUTED, CARD_ALT)
 
     def set_watching(self):
         self._render("Watching for a match…", ACCENT, ACCENT, "#0d1b26", "#173042")
@@ -254,7 +289,7 @@ class TabButton(tk.Canvas):
         if self.active:
             fill, border, fg = "#132530", ACCENT, ACCENT
         else:
-            fill, border, fg = CARD_ALT, BORDER, MUTED
+            fill, border, fg = CARD_ALT, "", MUTED
         draw_round_rect(self, 1, 1, self.w - 1, self.h - 1, self.h / 2, fill=fill, outline=border, width=1.2)
         self.create_text(self.w / 2, self.h / 2, text=self.text, fill=fg, font=(FONT, 9, "bold"))
 
@@ -284,9 +319,9 @@ class MatchCard(tk.Canvas):
         if self.selected:
             fill, border = "#132530", ACCENT
         elif hover:
-            fill, border = "#161b22", BORDER
+            fill, border = "#161b22", ""
         else:
-            fill, border = CARD_ALT, CARD_ALT
+            fill, border = CARD_ALT, ""
         draw_round_rect(self, 1, 1, self.w - 1, self.h - 1, 10, fill=fill, outline=border, width=1.2)
 
         map_faction = None
@@ -504,21 +539,30 @@ class App:
 
         title_box = tk.Frame(header, bg=CARD)
         title_box.pack(side="left", padx=(20, 26))
-        tk.Label(title_box, text="WARDOGS", bg=CARD, fg=TEXT, font=(FONT, 13, "bold")).pack(anchor="w")
-        tk.Label(title_box, text="Profit Tracker", bg=CARD, fg=MUTED, font=(FONT, 8, "bold")).pack(anchor="w")
+        icon_img = app_icon_image(30)
+        if icon_img:
+            icon_label = tk.Label(title_box, image=icon_img, bg=CARD)
+            icon_label.image = icon_img
+            icon_label.pack(side="left", padx=(0, 10))
+        text_box = tk.Frame(title_box, bg=CARD)
+        text_box.pack(side="left")
+        tk.Label(text_box, text="WARDOGS", bg=CARD, fg=TEXT, font=(FONT, 13, "bold")).pack(anchor="w")
+        tk.Label(text_box, text="Profit Tracker", bg=CARD, fg=MUTED, font=(FONT, 8, "bold")).pack(anchor="w")
 
         self.status_pill = StatusPill(header)
         self.status_pill.pack(side="right", padx=20)
 
         self.settings_button = tk.Button(
-            header, text="⚙ Settings", command=self._open_settings,
+            header, text=" Settings", image=ui_icon("settings"), compound="left",
+            command=self._open_settings,
             bg=CARD, fg=MUTED, relief="flat", bd=0, cursor="hand2",
             font=(FONT, 8, "bold"), activebackground=CARD, activeforeground=TEXT,
         )
         self.settings_button.pack(side="right", padx=(0, 4))
 
         self.news_button = tk.Button(
-            header, text="📰 News", command=self.show_news,
+            header, text=" News", image=ui_icon("news"), compound="left",
+            command=self.show_news,
             bg=CARD, fg=MUTED, relief="flat", bd=0, cursor="hand2",
             font=(FONT, 8, "bold"), activebackground=CARD, activeforeground=TEXT,
         )
@@ -574,7 +618,7 @@ class App:
         self.tab_xp.pack(side="left")
         self.tab_profit.set_active(True)
 
-        chart_card = tk.Frame(self.match_view, bg=CARD, highlightthickness=1, highlightbackground=BORDER)
+        chart_card = tk.Frame(self.match_view, bg=CARD, highlightthickness=0, bd=0)
         chart_card.pack(fill="both", expand=True, padx=18, pady=(0, 18))
 
         self.fig, self.axes = plt.subplots(2, 1, figsize=(8, 6), sharex=True, facecolor=CARD)
@@ -857,7 +901,7 @@ class App:
         self._clear_fig_text()
         for ax in self.axes:
             ax.axis("on")
-        plot_graph.draw(self.fig, self.axes, df, display_name(csv_path), quick=quick, full_df=full_df)
+        plot_graph.draw(self.fig, self.axes, df, display_name(csv_path), quick=quick, full_df=full_df, title_prefix="")
         self._apply_panel_split()
         self.canvas.draw_idle()
 
