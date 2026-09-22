@@ -52,7 +52,7 @@ jobs:
 
       - name: Verify the build produced an installer
         shell: bash
-        run: test -f dist/WardogsProfitTrackerSetup.exe
+        run: test -f dist/ProfitDogsSetup.exe
 
       - name: Create/update the release and upload the installer + raw exe
         env:
@@ -60,7 +60,7 @@ jobs:
         shell: bash
         run: |
           tag="${GITHUB_REF_NAME}"
-          assets="dist/WardogsProfitTrackerSetup.exe dist/profitdog.exe"
+          assets="dist/ProfitDogsSetup.exe dist/profitdog.exe"
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" $assets --clobber
           else

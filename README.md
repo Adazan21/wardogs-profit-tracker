@@ -84,7 +84,7 @@ configure:
 
 ### Standalone .exe / installer
 
-Players download `WardogsProfitTrackerSetup.exe` from
+Players download `ProfitDogsSetup.exe` from
 [profitdogs.app](https://profitdogs.app) or the
 [latest release](https://github.com/Adazan21/wardogs-profit-tracker/releases/latest) —
 a normal Windows installer (built with [Inno Setup](https://jrsoftware.org/isinfo.php)
@@ -104,7 +104,7 @@ python -m PyInstaller profitdog.spec
 ```
 
 The exe lands in `dist/profitdog.exe`, the installer in
-`dist/WardogsProfitTrackerSetup.exe`. `profitdog.spec` bundles
+`dist/ProfitDogsSetup.exe`. `profitdog.spec` bundles
 `steam_api64.dll` explicitly (PyInstaller's static analysis can't see a
 `ctypes.WinDLL` load the way it sees a normal `import`, so it has to be
 listed there) and excludes a handful of large unrelated packages
@@ -192,7 +192,7 @@ self-updates if a newer one exists (`updater.py`) — running from source
    git push origin v1.1.0
    ```
 That's it — `.github/workflows/release.yml` builds `profitdog.exe` and
-`WardogsProfitTrackerSetup.exe` from that tag on a clean GitHub-hosted
+`ProfitDogsSetup.exe` from that tag on a clean GitHub-hosted
 Windows runner and attaches both to a matching GitHub Release
 automatically (a couple minutes). Both get published: the installer is
 what profitdogs.app links to and what new players download; the raw exe
