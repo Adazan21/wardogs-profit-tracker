@@ -43,14 +43,26 @@ jobs:
         shell: bash
         run: test -f dist/profitdog.exe
 
-      - name: Create/update the release and upload the exe
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Build the installer (installer.iss)
+        shell: bash
+        run: '"/c/Program Files (x86)/Inno Setup 6/ISCC.exe" installer.iss'
+
+      - name: Verify the build produced an installer
+        shell: bash
+        run: test -f dist/WardogsProfitTrackerSetup.exe
+
+      - name: Create/update the release and upload the installer + raw exe
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           tag="${GITHUB_REF_NAME}"
+          assets="dist/WardogsProfitTrackerSetup.exe dist/profitdog.exe"
           if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" dist/profitdog.exe --clobber
+            gh release upload "$tag" $assets --clobber
           else
-            gh release create "$tag" dist/profitdog.exe --title "$tag" --generate-notes
+            gh release create "$tag" $assets --title "$tag" --generate-notes
           fi

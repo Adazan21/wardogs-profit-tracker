@@ -82,23 +82,43 @@ configure:
   start Steam (and Wardogs) and it picks up on its own within a couple
   seconds, still no restart needed.
 
-### Standalone .exe
+### Standalone .exe / installer
 
-A prebuilt `dist/profitdog.exe` is included — just double-click it, no
-Python install needed. To rebuild it after changing the code:
+Players download `WardogsProfitTrackerSetup.exe` from
+[profitdogs.app](https://profitdogs.app) or the
+[latest release](https://github.com/Adazan21/wardogs-profit-tracker/releases/latest) —
+a normal Windows installer (built with [Inno Setup](https://jrsoftware.org/isinfo.php)
+from `installer.iss`): pick an install folder, get a Start Menu/Desktop
+shortcut, uninstall from Add/Remove Programs like any other app. It
+installs per-user under `%LOCALAPPDATA%\Programs\WardogsProfitTracker` by
+default, deliberately outside `Program Files` — no admin/UAC prompt needed,
+and it keeps that folder writable by the app itself, which matters because
+self-update (`updater.py`) replaces its own exe in place after install.
+
+To build both locally after changing the code:
 
 ```
 pip install pyinstaller
 python -m PyInstaller profitdog.spec
+"%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" installer.iss
 ```
 
-The output lands in `dist/profitdog.exe`. `profitdog.spec` bundles
+The exe lands in `dist/profitdog.exe`, the installer in
+`dist/WardogsProfitTrackerSetup.exe`. `profitdog.spec` bundles
 `steam_api64.dll` explicitly (PyInstaller's static analysis can't see a
 `ctypes.WinDLL` load the way it sees a normal `import`, so it has to be
 listed there) and excludes a handful of large unrelated packages
 (torch/scipy/etc.) that PyInstaller's auto-discovery otherwise pulls in
 on some machines, bloating a ~40 MB exe into 150+ MB for libraries this
-app never uses.
+app never uses. `installer.iss` reads its version directly from
+`dist/profitdog.exe`'s own embedded version resource (`version_info.txt`),
+so it never needs updating by hand when you bump a version.
+
+All of the app's own files — match session CSVs, role XP log, sync/
+autolaunch settings — live under `%LOCALAPPDATA%\WardogsProfitTracker`
+regardless of where the exe itself is installed or run from (see
+`appdata.py`), so they never clutter the install folder or wherever a
+portable copy happens to be sitting (e.g. a Downloads folder).
 
 ## Track a match from the command line
 
@@ -171,14 +191,19 @@ self-updates if a newer one exists (`updater.py`) — running from source
    git tag v1.1.0
    git push origin v1.1.0
    ```
-That's it — `.github/workflows/release.yml` builds `profitdog.exe` from
-that tag on a clean GitHub-hosted Windows runner and attaches it to a
-matching GitHub Release automatically (a couple minutes). Building via
-CI rather than by hand on a developer's own machine isn't just tidier —
-it's what SignPath Foundation's free code-signing program for open-source
-projects requires ("binary artifacts must be built from source code in a
-verifiable way"); see their [terms](https://signpath.org/terms.html) for
-the rest of the eligibility requirements.
+That's it — `.github/workflows/release.yml` builds `profitdog.exe` and
+`WardogsProfitTrackerSetup.exe` from that tag on a clean GitHub-hosted
+Windows runner and attaches both to a matching GitHub Release
+automatically (a couple minutes). Both get published: the installer is
+what profitdogs.app links to and what new players download; the raw exe
+stays published too because `updater.py`'s self-update downloads that one
+specifically to replace an already-installed copy in place, not the
+installer. Building via CI rather than by hand on a developer's own
+machine isn't just tidier — it's what SignPath Foundation's free
+code-signing program for open-source projects requires ("binary artifacts
+must be built from source code in a verifiable way"); see their
+[terms](https://signpath.org/terms.html) for the rest of the eligibility
+requirements.
 
 Players on an older version pick it up next time they launch the app —
 downloaded in the background, swapped in, and relaunched automatically

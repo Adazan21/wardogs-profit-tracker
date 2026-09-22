@@ -27,6 +27,7 @@ import uuid
 
 import requests
 
+import appdata
 import cloud_config
 import tracker
 from version import APP_VERSION
@@ -34,17 +35,9 @@ from version import APP_VERSION
 REQUEST_TIMEOUT = 8
 ROLES = ["Wardog", "Infantry", "Medic", "Driver", "Pilot", "Support", "Recon"]
 
-
-def _appdata_dir():
-    base = os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))
-    path = os.path.join(base, "WardogsProfitTracker")
-    os.makedirs(path, exist_ok=True)
-    return path
-
-
-CONSENT_PATH = os.path.join(_appdata_dir(), "sync_consent.json")
-STATE_PATH = os.path.join(_appdata_dir(), "sync_state.json")
-IDENTITY_PATH = os.path.join(_appdata_dir(), "steam_identity.json")
+CONSENT_PATH = os.path.join(appdata.data_dir(), "sync_consent.json")
+STATE_PATH = os.path.join(appdata.data_dir(), "sync_state.json")
+IDENTITY_PATH = os.path.join(appdata.data_dir(), "steam_identity.json")
 
 
 # ---------------------------------------------------------------- consent --

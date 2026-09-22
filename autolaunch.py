@@ -29,6 +29,7 @@ import sys
 import time
 import winreg
 
+import appdata
 import mapinfo
 
 RUN_KEY_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
@@ -44,14 +45,7 @@ _mutex_handle = None  # kept alive for the process's lifetime; Windows frees it 
 _watcher_mutex_handle = None
 
 
-def _appdata_dir():
-    base = os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))
-    path = os.path.join(base, "WardogsProfitTracker")
-    os.makedirs(path, exist_ok=True)
-    return path
-
-
-STATE_PATH = os.path.join(_appdata_dir(), "autolaunch_state.json")
+STATE_PATH = os.path.join(appdata.data_dir(), "autolaunch_state.json")
 
 
 def _load_state():

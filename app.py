@@ -32,6 +32,7 @@ import matplotlib.pyplot as plt
 import matplotlib.transforms as mtransforms
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
+import appdata
 import tracker
 import plot_graph
 import rolexp
@@ -1228,6 +1229,15 @@ def _blend_titlebar_with_theme(root):
 
 
 def main():
+    # tracker.py's session CSVs/role_xp_log.csv and richpresence.py's
+    # steam_appid.txt all use plain relative paths, which otherwise land
+    # wherever this process's cwd happens to be — for a double-clicked exe,
+    # that's wherever the user saved it (often Downloads), which would
+    # clutter it with CSVs forever. Landing here instead makes all of that
+    # existing relative-path code resolve into the app's own data folder
+    # without needing to touch every call site.
+    os.chdir(appdata.data_dir())
+
     if "--watch" in sys.argv:
         autolaunch.run_watcher()  # headless — waits for Wardogs, then launches the GUI; never returns
         return
